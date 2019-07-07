@@ -8,6 +8,8 @@ from modules.word_embedding import WordEmbedding
 from modules.aggregator_predict import AggPredictor
 from modules.sel_condition_predict import SelCondPredictor
 from modules.condtion_op_str_predict import CondOpStrPredictor
+from modules.select_number import SelNumPredictor
+from modules where_relation import WhereRelationPredictor
 
 
 class SQLNet(nn.Module):
@@ -43,6 +45,7 @@ class SQLNet(nn.Module):
         self.embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=trainable_emb)
 
+        self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
         #Predict aggregator
         self.agg_pred = AggPredictor(N_word, N_h, N_depth)
 
@@ -52,6 +55,8 @@ class SQLNet(nn.Module):
         #Predict condition operators and string values
         self.op_str_pred = CondOpStrPredictor(N_word, N_h, N_depth,
                 self.max_col_num, self.max_tok_num, gpu, db_content)
+
+        self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth)
 
         self.CE = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax()
@@ -130,7 +135,7 @@ class SQLNet(nn.Module):
 
 
     def forward(self, q, col, col_num, q_type, col_type, pred_entry,
-            gt_where = None, gt_cond=None, gt_sel=None):
+            gt_where = None, gt_cond=None, gt_sel=None, gt_sel_num=None):
         B = len(q)
         pred_agg, pred_sel, pred_cond = pred_entry
 
@@ -185,11 +190,26 @@ class SQLNet(nn.Module):
 
         else:
             x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
-            col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
+            #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
+            col_inp_var, col_name_len, col_len = self.agg_embed_layer.gen_col_batch(col)
             x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
             col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
             agg_emb_var = self.embed_layer.gen_agg_batch(q)
             max_x_len = max(x_len)
+
+            sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+            if gt_sel_num:
+                pre_sel_num = gt_sel_num
+            else:
+                pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+            sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+
+            if gt_sel:
+                pr_sel = gt_sel
+            else:
+                num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+                sel = sel_score.data.cpu().numpy()
+                pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
             if pred_agg:
                 agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
 
@@ -199,8 +219,9 @@ class SQLNet(nn.Module):
             if pred_cond:
                 cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
                                                     gt_where, gt_cond, sel_cond_score)
+            where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
 
-        return (agg_score, sel_cond_score, cond_op_str_score)
+        return (sel_num_score, sel_score, agg_score, sel_cond_score, cond_op_str_score, where_rela_score)
 
 
     def loss(self, score, truth_num, pred_entry, gt_where):

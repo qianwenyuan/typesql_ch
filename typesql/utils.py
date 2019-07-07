@@ -83,10 +83,14 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
     gt_cond_seq = []
     vis_seq = []
 
+    sel_num_seq = []
+
     q_type = []
     col_type = []
     for i in range(st, ed):
         sql = sql_data[idxes[i]]
+        sel_num = len(sql['sql']['sel'])
+        sel_num_seq.append(sel_num)
         if db_content == 0:
             q_seq.append([[x] for x in sql['question_tok']])
             q_type.append([[x] for x in sql["question_type_org_kgcol"]])
@@ -106,9 +110,9 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
         vis_seq.append((sql['question'],
             table_data[sql['table_id']]['header'], sql['query'], [[x] for x in sql['question_tok']]))
     if ret_vis_data:
-        return q_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type, vis_seq
+        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type, vis_seq
     else:
-        return q_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type
+        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type
 
 
 def to_batch_query(sql_data, idxes, st, ed):
@@ -128,13 +132,13 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, pred_entry, 
     while st < len(sql_data):
         ed = st+batch_size if st+batch_size < len(perm) else len(perm)
 
-        q_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type = \
+        q_seq, gt_sel_num, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
         gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq, query_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
         gt_agg_seq = [x[0] for x in ans_seq]
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type, pred_entry,
-                gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq)
+                gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq, gt_sel_num=gt_sel_num)
         loss = model.loss(score, ans_seq, pred_entry, gt_where_seq)
         cum_loss += loss.data.cpu().numpy()[0]*(ed - st)
         optimizer.zero_grad()
