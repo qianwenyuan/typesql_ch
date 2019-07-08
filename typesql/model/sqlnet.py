@@ -9,7 +9,9 @@ from modules.aggregator_predict import AggPredictor
 from modules.sel_condition_predict import SelCondPredictor
 from modules.condtion_op_str_predict import CondOpStrPredictor
 from modules.select_number import SelNumPredictor
-from modules where_relation import WhereRelationPredictor
+from modules.where_relation import WhereRelationPredictor
+from modules.selection_predict import SelPredictor
+from modules.sqlnet_condition_predict import SQLNetCondPredictor
 
 
 class SQLNet(nn.Module):
@@ -35,19 +37,31 @@ class SQLNet(nn.Module):
         else:
             is_train = False
 
+        self.sel_num_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
+                self.SQL_TOK, trainable=is_train)
         self.agg_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=is_train)
         self.sel_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=is_train)
         self.cond_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=is_train)
+        self.where_rela_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
+                 self.SQL_TOK, trainable=is_train)
 
         self.embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=trainable_emb)
 
+        # Predict selected column number
         self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
+
+        # Predict which columns are selected
+        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num)
+
         #Predict aggregator
         self.agg_pred = AggPredictor(N_word, N_h, N_depth)
+
+        # Predict number of conditions, condition columns, condition operations and condition values
+        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num)
 
         #Predict select column + condition number and columns
         self.selcond_pred = SelCondPredictor(N_word, N_h, N_depth, gpu, db_content)
@@ -56,6 +70,7 @@ class SQLNet(nn.Module):
         self.op_str_pred = CondOpStrPredictor(N_word, N_h, N_depth,
                 self.max_col_num, self.max_tok_num, gpu, db_content)
 
+        # Predict conditions' relation
         self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth)
 
         self.CE = nn.CrossEntropyLoss()
@@ -137,13 +152,12 @@ class SQLNet(nn.Module):
     def forward(self, q, col, col_num, q_type, col_type, pred_entry,
             gt_where = None, gt_cond=None, gt_sel=None, gt_sel_num=None):
         B = len(q)
-        pred_agg, pred_sel, pred_cond = pred_entry
+        pred_sel_num, pred_agg, pred_sel, pred_cond, pred_where_rela = pred_entry
 
         agg_score = None
         sel_cond_score = None
         cond_op_str_score = None
 
-        #Predict aggregator
         if self.trainable_emb:
             if pred_agg:
                 x_emb_var, x_len = self.agg_embed_layer.gen_x_batch(q, col)
@@ -171,38 +185,55 @@ class SQLNet(nn.Module):
                         gt_where, gt_cond)
         elif self.db_content == 0:
             x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
-            col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
+            #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
+            col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
             agg_emb_var = self.embed_layer.gen_agg_batch(q)
             max_x_len = max(x_len)
-            if pred_agg:
-                #x_type_agg_emb_var, _ = self.agg_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
-                agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
+            if pred_sel_num and pred_agg and pred_sel:
+                sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+            if gt_sel_num:
+                pre_sel_num = gt_sel_num
+            else:
+                pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+            x_type_sel_emb_var, _ = self.sel_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
+            sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_sel_emb_var, gt_sel)
 
-            if pred_sel:
-                x_type_sel_emb_var, _ = self.sel_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
-                sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_sel_emb_var,
-                                               gt_sel)
+            if gt_sel:
+                pr_sel = gt_sel
+            else:
+                num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+                sel = sel_cond_score.data.cpu().numpy()
+                pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+            agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len, gt_sel=pr_sel,
+                                      gt_sel_num=pr_sel_num)
+            # if pred_agg:
+            #     #x_type_agg_emb_var, _ = self.agg_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
+            #     agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
+            #
+            # if pred_sel:
+            #     x_type_sel_emb_var, _ = self.sel_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
+            #     sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_sel_emb_var,
+            #                                    gt_sel)
 
             if pred_cond:
                 x_type_cond_emb_var, _ = self.cond_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
                 cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_cond_emb_var,
                                                      gt_where, gt_cond, sel_cond_score)
 
+            if pred_where_rela:
+                where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
         else:
-            x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
-            #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
-            col_inp_var, col_name_len, col_len = self.agg_embed_layer.gen_col_batch(col)
+            x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col)
+            col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
             x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
             col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
-            agg_emb_var = self.embed_layer.gen_agg_batch(q)
-            max_x_len = max(x_len)
+            sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
-            sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
             if gt_sel_num:
-                pre_sel_num = gt_sel_num
+                pr_sel_num = gt_sel_num
             else:
                 pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-            sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+            sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
             if gt_sel:
                 pr_sel = gt_sel
@@ -210,108 +241,286 @@ class SQLNet(nn.Module):
                 num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
                 sel = sel_score.data.cpu().numpy()
                 pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
-            if pred_agg:
-                agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
+            agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_sel=pr_sel,
+                                      gt_sel_num=pr_sel_num)
 
-            if pred_sel:
-                sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            cond_score = self.cond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_where,
+                                        gt_cond)
 
-            if pred_cond:
-                cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
-                                                    gt_where, gt_cond, sel_cond_score)
-            where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+            where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
+            # x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
+            # #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
+            # col_inp_var, col_name_len, col_len = self.agg_embed_layer.gen_col_batch(col)
+            # x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
+            # col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
+            # agg_emb_var = self.embed_layer.gen_agg_batch(q)
+            # max_x_len = max(x_len)
+            #
+            # if pred_sel_num and pred_agg and pred_sel:
+            #     sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
+            #     if gt_sel_num:
+            #         pre_sel_num = gt_sel_num
+            #     else:
+            #         pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+            #     sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            #
+            #     if gt_sel:
+            #          pr_sel = gt_sel
+            #     else:
+            #         num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+            #         sel = sel_cond_score.data.cpu().numpy()
+            #         pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+            #     agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len, gt_sel=pr_sel, gt_sel_num=pr_sel_num)
+            # # if pred_agg:
+            # #     agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
+            #
+            # # if pred_sel:
+            # #     sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            #
+            # if pred_cond:
+            #     cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
+            #                                         gt_where, gt_cond, sel_cond_score)
+            #
+            # if pred_where_rela:
+            #     where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
 
-        return (sel_num_score, sel_score, agg_score, sel_cond_score, cond_op_str_score, where_rela_score)
+        return (sel_num_score, sel_score, agg_score, cond_score, where_rela_score)
 
+    def loss(self, score, truth_num, gt_where):
+        sel_num_score, sel_score, agg_score, cond_score, where_rela_score = score
 
-    def loss(self, score, truth_num, pred_entry, gt_where):
-        pred_agg, pred_sel, pred_cond = pred_entry
-        agg_score, sel_cond_score, cond_op_str_score = score
-
-        cond_num_score, sel_score, cond_col_score = sel_cond_score
-        cond_op_score, cond_str_score = cond_op_str_score
-
+        B = len(truth_num)
         loss = 0
-        if pred_agg:
-            agg_truth = map(lambda x:x[0], truth_num)
-            data = torch.from_numpy(np.array(agg_truth))
+
+        # Evaluate select number
+        sel_num_truth = map(lambda x: x[0], truth_num)
+        sel_num_truth = torch.from_numpy(np.array(sel_num_truth))
+        if self.gpu:
+            sel_num_truth = Variable(sel_num_truth.cuda())
+        else:
+            sel_num_truth = Variable(sel_num_truth)
+        loss += self.CE(sel_num_score, sel_num_truth)
+
+        # Evaluate select column
+        T = len(sel_score[0])
+        truth_prob = np.zeros((B, T), dtype=np.float32)
+        for b in range(B):
+            truth_prob[b][list(truth_num[b][1])] = 1
+        data = torch.from_numpy(truth_prob)
+        if self.gpu:
+            sel_col_truth_var = Variable(data.cuda())
+        else:
+            sel_col_truth_var = Variable(data)
+        sigm = nn.Sigmoid()
+        sel_col_prob = sigm(sel_score)
+        bce_loss = -torch.mean(
+            3 * (sel_col_truth_var * torch.log(sel_col_prob + 1e-10)) +
+            (1 - sel_col_truth_var) * torch.log(1 - sel_col_prob + 1e-10)
+        )
+        loss += bce_loss
+
+        # Evaluate select aggregation
+        for b in range(len(truth_num)):
+            data = torch.from_numpy(np.array(truth_num[b][2]))
             if self.gpu:
-                agg_truth_var = Variable(data.cuda())
+                sel_agg_truth_var = Variable(data.cuda())
             else:
-                agg_truth_var = Variable(data)
+                sel_agg_truth_var = Variable(data)
+            sel_agg_pred = agg_score[b, :len(truth_num[b][1])]
+            loss += (self.CE(sel_agg_pred, sel_agg_truth_var)) / len(truth_num)
 
-            loss += self.CE(agg_score, agg_truth_var)
+        cond_num_score, cond_col_score, cond_op_score, cond_str_score = cond_score
 
-        if pred_sel:
-            sel_truth = map(lambda x:x[1], truth_num)
-            data = torch.from_numpy(np.array(sel_truth))
-            if self.gpu:
-                sel_truth_var = Variable(data.cuda())
-            else:
-                sel_truth_var = Variable(data)
-
-            loss += self.CE(sel_score, sel_truth_var)
-
-        if pred_cond:
-            B = len(truth_num)
-            #Evaluate the number of conditions
-            cond_num_truth = map(lambda x:x[2], truth_num)
-            data = torch.from_numpy(np.array(cond_num_truth))
-            if self.gpu:
+        # Evaluate the number of conditions
+        cond_num_truth = map(lambda x: x[3], truth_num)
+        data = torch.from_numpy(np.array(cond_num_truth))
+        if self.gpu:
+            try:
                 cond_num_truth_var = Variable(data.cuda())
-            else:
-                cond_num_truth_var = Variable(data)
-            loss += self.CE(cond_num_score, cond_num_truth_var)
+            except:
+                print "cond_num_truth_var error"
+                print data
+                exit(0)
+        else:
+            cond_num_truth_var = Variable(data)
+        loss += self.CE(cond_num_score, cond_num_truth_var)
 
-            #Evaluate the columns of conditions
-            T = len(cond_col_score[0])
-            truth_prob = np.zeros((B, T), dtype=np.float32)
-            for b in range(B):
-                if len(truth_num[b][3]) > 0:
-                    truth_prob[b][list(truth_num[b][3])] = 1
-            data = torch.from_numpy(truth_prob)
+        # Evaluate the columns of conditions
+        T = len(cond_col_score[0])
+        truth_prob = np.zeros((B, T), dtype=np.float32)
+        for b in range(B):
+            if len(truth_num[b][4]) > 0:
+                truth_prob[b][list(truth_num[b][4])] = 1
+        data = torch.from_numpy(truth_prob)
+        if self.gpu:
+            cond_col_truth_var = Variable(data.cuda())
+        else:
+            cond_col_truth_var = Variable(data)
+
+        sigm = nn.Sigmoid()
+        cond_col_prob = sigm(cond_col_score)
+        bce_loss = -torch.mean(
+            3 * (cond_col_truth_var * torch.log(cond_col_prob + 1e-10)) +
+            (1 - cond_col_truth_var) * torch.log(1 - cond_col_prob + 1e-10))
+        loss += bce_loss
+
+        # Evaluate the operator of conditions
+        for b in range(len(truth_num)):
+            if len(truth_num[b][5]) == 0:
+                continue
+            data = torch.from_numpy(np.array(truth_num[b][5]))
             if self.gpu:
-                cond_col_truth_var = Variable(data.cuda())
+                cond_op_truth_var = Variable(data.cuda())
             else:
-                cond_col_truth_var = Variable(data)
+                cond_op_truth_var = Variable(data)
+            cond_op_pred = cond_op_score[b, :len(truth_num[b][5])]
+            try:
+                loss += (self.CE(cond_op_pred, cond_op_truth_var) / len(truth_num))
+            except:
+                print cond_op_pred
+                print cond_op_truth_var
+                exit(0)
 
-            sigm = nn.Sigmoid()
-            cond_col_prob = sigm(cond_col_score)
-            bce_loss = -torch.mean( 3*(cond_col_truth_var * \
-                    torch.log(cond_col_prob+1e-10)) + \
-                    (1-cond_col_truth_var) * torch.log(1-cond_col_prob+1e-10) )
-            loss += bce_loss
-
-            #Evaluate the operator of conditions
-            for b in range(len(truth_num)):
-                if len(truth_num[b][4]) == 0:
+        # Evaluate the strings of conditions
+        for b in range(len(gt_where)):
+            for idx in range(len(gt_where[b])):
+                cond_str_truth = gt_where[b][idx]
+                if len(cond_str_truth) == 1:
                     continue
-                data = torch.from_numpy(np.array(truth_num[b][4]))
+                data = torch.from_numpy(np.array(cond_str_truth[1:]))
                 if self.gpu:
-                    cond_op_truth_var = Variable(data.cuda())
+                    cond_str_truth_var = Variable(data.cuda())
                 else:
-                    cond_op_truth_var = Variable(data)
-                cond_op_pred = cond_op_score[b, :len(truth_num[b][4])]
-                loss += (self.CE(cond_op_pred, cond_op_truth_var) \
-                        / len(truth_num))
+                    cond_str_truth_var = Variable(data)
+                str_end = len(cond_str_truth) - 1
+                cond_str_pred = cond_str_score[b, idx, :str_end]
+                loss += (self.CE(cond_str_pred, cond_str_truth_var) \
+                         / (len(gt_where) * len(gt_where[b])))
 
-            #Evaluate the strings of conditions
-            for b in range(len(gt_where)):
-                for idx in range(len(gt_where[b])):
-                    cond_str_truth = gt_where[b][idx]
-                    if len(cond_str_truth) == 1:
-                        continue
-                    data = torch.from_numpy(np.array(cond_str_truth[1:]))
-                    if self.gpu:
-                        cond_str_truth_var = Variable(data.cuda())
-                    else:
-                        cond_str_truth_var = Variable(data)
-                    str_end = len(cond_str_truth)-1
-                    cond_str_pred = cond_str_score[b, idx, :str_end]
-                    loss += (self.CE(cond_str_pred, cond_str_truth_var) \
-                            / (len(gt_where) * len(gt_where[b])))
-
+        # Evaluate condition relationship, and / or
+        where_rela_truth = map(lambda x: x[6], truth_num)
+        data = torch.from_numpy(np.array(where_rela_truth))
+        if self.gpu:
+            try:
+                where_rela_truth = Variable(data.cuda())
+            except:
+                print "where_rela_truth error"
+                print data
+                exit(0)
+        else:
+            where_rela_truth = Variable(data)
+        loss += self.CE(where_rela_score, where_rela_truth)
         return loss
+    # def loss(self, score, truth_num, pred_entry, gt_where): #edited by qwy
+    #     pred_agg, pred_sel, pred_cond = pred_entry
+    #     sel_num_score, agg_score, sel_cond_score, cond_op_str_score, where_rela_score = score
+    #
+    #     cond_num_score, sel_score, cond_col_score = sel_cond_score
+    #     cond_op_score, cond_str_score = cond_op_str_score
+    #
+    #     loss = 0
+    #
+    #     sel_num_truth = map(lambda x:x[0], truth_num)
+    #     sel_num_truth = torch.from_numpy(np.array(sel_num_truth))
+    #     if self.gpu:
+    #         sel_num_truth = Variable(sel_num_truth.cuda())
+    #     else:
+    #         sel_num_truth = Variable(sel_num_truth)
+    #     loss += self.CE(sel_num_score, sel_num_truth)
+    #
+    #     if pred_sel:
+    #         sel_truth = map(lambda x:x[1], truth_num)
+    #         data = torch.from_numpy(np.array(sel_truth))
+    #         if self.gpu:
+    #             sel_truth_var = Variable(data.cuda())
+    #         else:
+    #             sel_truth_var = Variable(data)
+    #
+    #         loss += self.CE(sel_score, sel_truth_var)
+    #
+    #     if pred_agg:
+    #         agg_truth = map(lambda x:x[2], truth_num)
+    #         data = torch.from_numpy(np.array(agg_truth))
+    #         if self.gpu:
+    #             agg_truth_var = Variable(data.cuda())
+    #         else:
+    #             agg_truth_var = Variable(data)
+    #
+    #         loss += self.CE(agg_score, agg_truth_var)
+    #
+    #     if pred_cond:
+    #         B = len(truth_num)
+    #         #Evaluate the number of conditions
+    #         cond_num_truth = map(lambda x:x[3], truth_num)
+    #         data = torch.from_numpy(np.array(cond_num_truth))
+    #         if self.gpu:
+    #             cond_num_truth_var = Variable(data.cuda())
+    #         else:
+    #             cond_num_truth_var = Variable(data)
+    #         loss += self.CE(cond_num_score, cond_num_truth_var)
+    #
+    #         #Evaluate the columns of conditions
+    #         T = len(cond_col_score[0])
+    #         truth_prob = np.zeros((B, T), dtype=np.float32)
+    #         for b in range(B):
+    #             if len(truth_num[b][4]) > 0:
+    #                 truth_prob[b][list(truth_num[b][4])] = 1
+    #         data = torch.from_numpy(truth_prob)
+    #         if self.gpu:
+    #             cond_col_truth_var = Variable(data.cuda())
+    #         else:
+    #             cond_col_truth_var = Variable(data)
+    #
+    #         sigm = nn.Sigmoid()
+    #         cond_col_prob = sigm(cond_col_score)
+    #         bce_loss = -torch.mean( 3*(cond_col_truth_var * \
+    #                 torch.log(cond_col_prob+1e-10)) + \
+    #                 (1-cond_col_truth_var) * torch.log(1-cond_col_prob+1e-10) )
+    #         loss += bce_loss
+    #
+    #         #Evaluate the operator of conditions
+    #         for b in range(len(truth_num)):
+    #             if len(truth_num[b][5]) == 0:
+    #                 continue
+    #             data = torch.from_numpy(np.array(truth_num[b][5]))
+    #             if self.gpu:
+    #                 cond_op_truth_var = Variable(data.cuda())
+    #             else:
+    #                 cond_op_truth_var = Variable(data)
+    #             cond_op_pred = cond_op_score[b, :len(truth_num[b][5])]
+    #             loss += (self.CE(cond_op_pred, cond_op_truth_var) \
+    #                     / len(truth_num))
+    #
+    #         #Evaluate the strings of conditions
+    #         for b in range(len(gt_where)):
+    #             for idx in range(len(gt_where[b])):
+    #                 cond_str_truth = gt_where[b][idx]
+    #                 if len(cond_str_truth) == 1:
+    #                     continue
+    #                 data = torch.from_numpy(np.array(cond_str_truth[1:]))
+    #                 if self.gpu:
+    #                     cond_str_truth_var = Variable(data.cuda())
+    #                 else:
+    #                     cond_str_truth_var = Variable(data)
+    #                 str_end = len(cond_str_truth)-1
+    #                 cond_str_pred = cond_str_score[b, idx, :str_end]
+    #                 loss += (self.CE(cond_str_pred, cond_str_truth_var) \
+    #                         / (len(gt_where) * len(gt_where[b])))
+    #
+    #         where_rela_truth = map(lambda x: x[6], truth_num)
+    #         data = torch.from_numpy(np.array(where_rela_truth))
+    #         if self.gpu:
+    #             try:
+    #                 where_rela_truth = Variable(data.cuda())
+    #             except:
+    #                 print "where_rela_truth error"
+    #                 print data
+    #                 exit(0)
+    #         else:
+    #             where_rela_truth = Variable(data)
+    #         loss += self.CE(where_rela_score, where_rela_truth)
+    #
+    #     return loss
 
 
     def check_acc(self, vis_info, pred_queries, gt_queries, pred_entry, error_print=False):

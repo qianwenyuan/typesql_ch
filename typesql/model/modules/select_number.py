@@ -28,10 +28,10 @@ class SelNumPredictor(nn.Module):
         if self.use_ca:
             print "Using column attention on select number predicting"
 
-    def forward(self, x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num):
+    def forward(self, x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var):
         B = len(x_len)
         max_x_len = max(x_len)
-
+        x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
         # Predict the number of select part
         # First use column embeddings to calculate the initial hidden unit
         # Then run the LSTM and predict select number
@@ -46,7 +46,7 @@ class SelNumPredictor(nn.Module):
         sel_num_h1 = self.sel_num_col2hid1(K_num_col).view(B, 4, self.N_h/2).transpose(0,1).contiguous()
         sel_num_h2 = self.sel_num_col2hid2(K_num_col).view(B, 4, self.N_h/2).transpose(0,1).contiguous()
 
-        h_num_enc, _ = run_lstm(self.sel_num_lstm, x_emb_var, x_len,
+        h_num_enc, _ = run_lstm(self.sel_num_lstm, x_emb_concat, x_len,
                                 hidden=(sel_num_h1, sel_num_h2))
 
         num_att_val = self.sel_num_att(h_num_enc).squeeze()

@@ -25,9 +25,10 @@ class WhereRelationPredictor(nn.Module):
         if self.use_ca:
             print "Using column attention on where relation predicting"
 
-    def forward(self, x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num):
+    def forward(self, x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var):
         B = len(x_len)
         max_x_len = max(x_len)
+        x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
 
         # Predict the condition relationship part
         # First use column embeddings to calculate the initial hidden unit
@@ -43,7 +44,7 @@ class WhereRelationPredictor(nn.Module):
         h1 = self.col2hid1(K_num_col).view(B, 4, self.N_h/2).transpose(0,1).contiguous()
         h2 = self.col2hid2(K_num_col).view(B, 4, self.N_h/2).transpose(0,1).contiguous()
 
-        h_enc, _ = run_lstm(self.where_rela_lstm, x_emb_var, x_len, hidden=(h1, h2))
+        h_enc, _ = run_lstm(self.where_rela_lstm, x_emb_concat, x_len, hidden=(h1, h2))
 
         att_val = self.where_rela_att(h_enc).squeeze()
         for idx, num in enumerate(x_len):
