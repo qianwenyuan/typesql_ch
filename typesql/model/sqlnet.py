@@ -27,9 +27,9 @@ class SQLNet(nn.Module):
 
         self.max_col_num = 45
         self.max_tok_num = 200
-        self.SQL_TOK = ['<UNK>', '<END>', 'WHERE', 'AND',
-                'EQL', 'GT', 'LT', '<BEG>']
-        self.COND_OPS = ['EQL', 'GT', 'LT']
+        self.SQL_TOK = ['<UNK>', '<END>', 'WHERE', 'AND', 'OR',
+                '==', '>', '<', '!=', '<BEG>']
+        self.COND_OPS = ['>', '<', '==', '!=']
 
         #the model actually doesn't use type embedding when db_content == 1
         if db_content == 0:
@@ -149,10 +149,15 @@ class SQLNet(nn.Module):
         return ret_seq
 
 
-    def forward(self, q, col, col_num, q_type, col_type, pred_entry,
+    def forward(self, q, col, col_num, q_type, col_type,
             gt_where = None, gt_cond=None, gt_sel=None, gt_sel_num=None):
         B = len(q)
-        pred_sel_num, pred_agg, pred_sel, pred_cond, pred_where_rela = pred_entry
+        # pred_sel_num, pred_agg, pred_sel, pred_cond, pred_where_rela = pred_entry
+        pred_agg=True
+        pred_sel = True
+        pred_cond = True
+        pred_sel_num = True
+        pred_where_rela = True
 
         agg_score = None
         sel_cond_score = None

@@ -35,21 +35,34 @@ def load_data(sql_paths, table_paths, use_small=False):
     return sql_data, table_data
 
 
-def load_dataset(use_small=False):
-    print "Loading from original dataset"
-    sql_data, table_data = load_data('data/train_tok.jsonl',
-                 'data/train_tok.tables.jsonl', use_small=use_small)
-    val_sql_data, val_table_data = load_data('data/dev_tok.jsonl',
-                 'data/dev_tok.tables.jsonl', use_small=use_small)
+# def load_dataset(use_small=False):
+#     print "Loading from original dataset"
+#     sql_data, table_data = load_data('data/train_tok.jsonl',
+#                  'data/train_tok.tables.jsonl', use_small=use_small)
+#     val_sql_data, val_table_data = load_data('data/dev_tok.jsonl',
+#                  'data/dev_tok.tables.jsonl', use_small=use_small)
+#
+#     test_sql_data, test_table_data = load_data('data/test_tok.jsonl',
+#                 'data/test_tok.tables.jsonl', use_small=use_small)
+#     TRAIN_DB = 'data/train.db'
+#     DEV_DB = 'data/dev.db'
+#     TEST_DB = 'data/test.db'
+#
+#     return sql_data, table_data, val_sql_data, val_table_data,\
+#             test_sql_data, test_table_data, TRAIN_DB, DEV_DB, TEST_DB
 
-    test_sql_data, test_table_data = load_data('data/test_tok.jsonl',
-                'data/test_tok.tables.jsonl', use_small=use_small)
-    TRAIN_DB = 'data/train.db'
-    DEV_DB = 'data/dev.db'
-    TEST_DB = 'data/test.db'
-
-    return sql_data, table_data, val_sql_data, val_table_data,\
-            test_sql_data, test_table_data, TRAIN_DB, DEV_DB, TEST_DB
+def load_dataset(toy=False, use_small=False, mode='train'):
+    print "Loading dataset"
+    dev_sql, dev_table = load_data('data/val/val.json', 'data/val/val.tables.json', use_small=use_small)
+    dev_db = 'data/val/val.db'
+    if mode == 'train':
+        train_sql, train_table = load_data('data/train/train.json', 'data/train/train.tables.json', use_small=use_small)
+        train_db = 'data/train/train.db'
+        return train_sql, train_table, train_db, dev_sql, dev_table, dev_db
+    elif mode == 'test':
+        test_sql, test_table = load_data('data/test/test.json', 'data/test/test.tables.json', use_small=use_small)
+        test_db = 'data/test/test.db'
+        return dev_sql, dev_table, dev_db, test_sql, test_table, test_db
 
 def best_model_name(args, for_load=False):
     new_data = 'old'
@@ -137,7 +150,7 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, pred_entry, 
         gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq, query_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
         gt_agg_seq = [x[0] for x in ans_seq]
-        score = model.forward(q_seq, col_seq, col_num, q_type, col_type, pred_entry,
+        score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
                 gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq, gt_sel_num=gt_sel_num)
         loss = model.loss(score, ans_seq, pred_entry, gt_where_seq)
         cum_loss += loss.data.cpu().numpy()[0]*(ed - st)
