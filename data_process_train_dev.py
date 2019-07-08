@@ -8,14 +8,18 @@ import json
 import os
 import sys
 import argparse
-
+import codecs
+from pyhanlp import *
 # In[2]:
 
+NUMBERS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]
 
 class Keys(object):
     # keys for question
     KG_ENTITIES = "kg_entities"
     QUESTION = "question"
+    QUESTION_EX = "queston_tmp"
+    QUESTION_EX1 = "question_ex"
     QUESTION_TOK_KGCOL = "question_tok_kgcol"
     QUESTION_TYPE_KGCOL = "question_type_kgcol"
     QUESTION_TYPE_KGCOL_LIST = "question_type_kgcol_list"
@@ -31,13 +35,15 @@ class Keys(object):
     # keys for table
     TABLE_ID = "id"
     TABLE_ROWS = "rows"
+    HEADER = "header"
     HEADER_TOK = "header_tok"
     HEADER_TYPE = "header_type_kg"
-    
+    HEADER_UNIT = "header_unit"
+
     # old keys
     QUESTION_TOK_TYPE = "question_tok_type" # => q_type_kgcol_list
     QUESTION_TOK = "question_tok" # => q_tok_kgcol
-    
+
     # keys for meta information
     # meta header: {TYPE: TYPE_HEADER, META_CLS: ..., META_SIM_CLS: ...}
     # meta type: {TYPE: TYPE_TYPE, META_CLS: ..., META_SIM_CLS: ...}
@@ -337,15 +343,36 @@ def group_words(entry, tables):
 
 # In[5]:
 
+def levenshteinDistance(s1, s2):
+    if len(s1) > len(s2):
+        s1, s2 = s2, s1
+
+    distances = range(len(s1) + 1)
+    for i2, c2 in enumerate(s2):
+        distances_ = [i2+1]
+        for i1, c1 in enumerate(s1):
+            if c1 == c2:
+                distances_.append(distances[i1])
+            else:
+                distances_.append(1 + min((distances[i1], distances[i1 + 1], distances_[-1])))
+        distances = distances_
+    return distances[-1]
+
 
 def get_header_col(tokens, idx, num_toks, header_tok):
     for endIdx in reversed(range(idx+1, num_toks+1)):
         sub_toks = tokens[idx: endIdx]
         if sub_toks in header_tok:
             return endIdx, sub_toks
+        else:
+            str = "".join(sub_toks)
+            for column in header_tok:
+                str_col = "".join(column)
+                if levenshteinDistance(str, str_col) == 1:
+                    return endIdx, sub_toks
     return None
 
-def get_con_col(tokens, token_space, idx, num_toks, header_tok, rows, cols):
+def get_con_col(tokens, token_space, idx, num_toks, header_tok, header_unit, rows, cols):
     find = []
     for endIdx in reversed(range(idx+1, num_toks+1)):
         sub_toks = tokens[idx: endIdx]
@@ -355,9 +382,12 @@ def get_con_col(tokens, token_space, idx, num_toks, header_tok, rows, cols):
             cont += tok + space
         cont = cont.strip()
         for r in rows:
-            for i, c in enumerate(r):
+            for i, (c, unit) in enumerate(zip(r, header_unit)):
                 try:
+                    if unit:
+                        c = c+unit
                     if cont == str(c):
+                        print(cont)
                         find.append((endIdx, header_tok[i]))
                         continue
                 except:
@@ -386,6 +416,8 @@ def group_words_col(entry, tables):
     Group words in order of header, content
     and add to entry's meta
     """
+    toks_len = len(entry[Keys.QUESTION_TOK])
+    entry[Keys.QUESTION_TOK_SPACE] = [""] *toks_len
     entry[Keys.QUESTION_TYPE_CONCOL_LIST] = list()
     entry[Keys.QUESTION_TYPE_CONCOL] = list()
     entry[Keys.QUESTION_TYPE_ORG_CONCOL] = list()
@@ -393,7 +425,64 @@ def group_words_col(entry, tables):
     tokens = entry[Keys.QUESTION_TOK_ORG]
     token_space = entry[Keys.QUESTION_TOK_SPACE]
     table = tables[entry[Keys.QUESTION_TABLE_ID]]
+    #Format header
+    table[Keys.HEADER_TOK] = []
+    for column in table[Keys.HEADER]:
+        if column.find("(") > -1 and column.find(")") > -1 or column.find(u'（') > -1 and column.find(u'）') > -1:
+            if len(column) > column.find(')'):
+                column = column[0: column.find(u'('):] + column[column.find(u')') + 1::]
+            elif  len(column) > column.find(u'）'):
+                column = column[0: column.find(u'（'):] + column[column.find(u'）') + 1::]
+        column.replace(u'一', '1')
+        column.replace(u'二', '2')
+        column.replace(u'三', '3')
+        column.replace(u'四', '4')
+        column.replace(u'五', '5')
+        column.replace(u'六', '6')
+        column.replace(u'七', '7')
+        column.replace(u'八', '8')
+        column.replace(u'九', '9')
+        column.replace(u'零', '0')
+        column.replace(u'一', '1')
+
+        table[Keys.HEADER_TOK].append([term.word for term in HanLP.segment(column)])
     header_tok = table[Keys.HEADER_TOK]
+
+    #Format units
+    table[Keys.HEADER_UNIT] = []
+    for column in table[Keys.HEADER]:
+        # Have unit
+        if column.find("(") > -1 and column.find(")") > -1:
+            unit = column[column.find("(")+1: column.find(")")]
+            unit.replace(u'㎡', u'平')
+            unit.replace(u'%', u"百分比")
+            unit.replace(u"万元", u"万")
+            unit.replace(u"十万元", u"十万")
+            unit.replace(u"百万元", u"百万")
+            unit.replace(u"千万元", u"千万")
+            unit.replace(u"亿元", u"亿")
+            unit.replace(u"十亿元", u"十亿")
+            unit.replace(u"百亿元", u"百亿")
+            unit.replace(u"千亿元", u"千亿")
+            unit.replace(u"万亿元", u"万亿")
+            table[Keys.HEADER_UNIT].append(unit)
+        elif  column.find(u'（') > -1 and column.find(u'）') > -1:
+            unit = column[column.find("（") + 1: column.find("）")]
+            unit.replace(u'㎡', u'平')
+            unit.replace(u'%', u"百分比")
+            unit.replace(u"万元", u"万")
+            unit.replace(u"十万元", u"十万")
+            unit.replace(u"百万元", u"百万")
+            unit.replace(u"千万元", u"千万")
+            unit.replace(u"亿元", u"亿")
+            unit.replace(u"十亿元", u"十亿")
+            unit.replace(u"百亿元", u"百亿")
+            unit.replace(u"千亿元", u"千亿")
+            unit.replace(u"万亿元", u"万亿")
+            table[Keys.HEADER_UNIT].append(unit)
+        else:
+            table[Keys.HEADER_UNIT].append("")
+    header_unit = table[Keys.HEADER_UNIT]
     rows = table[Keys.TABLE_ROWS]
     
     num_toks = len(tokens)
@@ -413,7 +502,8 @@ def group_words_col(entry, tables):
             idx = endIdx
             continue
         
-        res = get_con_col(tokens, token_space, idx, num_toks, header_tok, rows, cols)
+        res = \
+            get_con_col(tokens, token_space, idx, num_toks, header_tok, header_unit, rows, cols)
         if res:
             endIdx, col_name = res
             entry[Keys.QUESTION_TYPE_CONCOL_LIST].append(col_name)
@@ -441,52 +531,128 @@ def load_and_process_data(file_path, table_path, out_path):
     with open(file_path) as f:
         for line in f:
             data = [json.loads(line.strip()) for line in f]
-    
     with open(table_path) as f:
         for line in f:
             table = json.loads(line.strip())
             tables[table[Keys.TABLE_ID]] = table
-    print len(data)
-    with open(out_path, 'w') as f:
+    print (len(data))
+    count = 1
+    with codecs.open(out_path, 'w', encoding='utf8') as f:
         for idx, entry in enumerate(data):
+            # print (count)
+            count = count +1
             # change from old keys to new keys
             if Keys.QUESTION_TOK_TYPE in entry:
                 entry[Keys.QUESTION_TYPE_KGCOL_LIST] = entry[Keys.QUESTION_TOK_TYPE]
                 del entry[Keys.QUESTION_TOK_TYPE]
             if Keys.QUESTION_TOK in entry:
-                entry[Keys.QUESTION_TOK_KGCOL] = entry[Keys.QUESTION_TOK]
+                # entry[Keys.QUESTION_TOK_KGCOL] = entry[Keys.QUESTION_TOK]
                 entry[Keys.QUESTION_TOK_ORG] = [item for sublist in entry[Keys.QUESTION_TOK] for item in sublist]
                 entry[Keys.QUESTION_TOK] = entry[Keys.QUESTION_TOK_ORG]
-            entry = group_words(entry, tables)
+            else:
+                # Format question tokens
+                with codecs.open('del_tokens', 'r', encoding='utf-8') as del_tokens_file:
+                    del_tokens_list = del_tokens_file.readlines()
+                del_tokens = [x.strip() for x in del_tokens_list]
+
+                for token in del_tokens:
+                    entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(token, u'')
+                #Format units in question
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"月份", u"月")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"万元", u"万")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"十万元", u"十万")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"百万元", u"百万")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"千万元", u"千万")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"亿元", u"亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"十亿元", u"十亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"百亿元", u"百亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"千亿元", u"千亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace("万亿元", u"万亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"亿元", u"亿")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].replace(u"平方米", u"平")
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].strip(u'，')
+                entry[Keys.QUESTION] = entry[Keys.QUESTION].strip(u' ')
+
+                # print (entry[Keys.QUESTION])
+
+                entry[Keys.QUESTION_EX] = ""
+                for char in entry[Keys.QUESTION]:
+                    if char == u'一':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX]+ u'1'
+                    elif char == u'二':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'2'
+                    elif char == u'三':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'3'
+                    elif char == u'四':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'4'
+                    elif char == u'五':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'5'
+                    elif char == u'六':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'6'
+                    elif char == u'七':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'7'
+                    elif char == u'八':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'8'
+                    elif char == u'九':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'9'
+                    elif char == u'零':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u'0'
+                    elif char == u'㎡':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u"平方米"
+                    elif char == u'%':
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + u"百分比"
+                    else:
+                        entry[Keys.QUESTION_EX] = entry[Keys.QUESTION_EX] + char
+                prev_char = ""
+                entry[Keys.QUESTION_EX1] = ""
+                for char in entry[Keys.QUESTION_EX]:
+                    if char == u"十" and prev_char in NUMBERS:
+                        entry[Keys.QUESTION_EX1] = entry[Keys.QUESTION_EX1] + u"0"
+                    elif char == u"百" and prev_char in NUMBERS:
+                        entry[Keys.QUESTION_EX1] = entry[Keys.QUESTION_EX1] + u"00"
+                    elif char == u"千" and prev_char in NUMBERS:
+                        entry[Keys.QUESTION_EX1] = entry[Keys.QUESTION_EX1] + u"000"
+                    else:
+                        entry[Keys.QUESTION_EX1] = entry[Keys.QUESTION_EX1] + char
+                    prev_char = char
+
+                del entry[Keys.QUESTION_EX]
+                # print (entry[Keys.QUESTION_EX])
+                entry[Keys.QUESTION_TOK] = [term.word for term in HanLP.segment(entry[Keys.QUESTION_EX1])]
+                # entry[Keys.QUESTION_TOK_ORG] = [item for sublist in entry[Keys.QUESTION_TOK] for item in sublist]
+                entry[Keys.QUESTION_TOK_ORG] = entry[Keys.QUESTION_TOK]
+                # entry[Keys.QUESTION_TOK] = entry[Keys.QUESTION_TOK_ORG]
+            # print ("entry:{}".format(entry.decode('utf-8')))
+            # entry = group_words(entry, tables)
             
-            # add question_tok_kgcol
-            res = [item[Keys.META_TOKS] for item in entry[Keys.META]]
-          
-            entry[Keys.QUESTION_TOK_KGCOL] = res
-            
-            # add question_type_kgcol
-            res = [item[Keys.META_SIM_CLS] for item in entry[Keys.META]]
-            entry[Keys.QUESTION_TYPE_KGCOL] = res
-            
-            # add question_type_kgcol_list
-            res = []
-            for item in entry[Keys.META]:
-                extra = []
-                if item[Keys.TYPE] == Keys.TYPE_KG: extra.append(Keys.ENTITY)
-                elif item[Keys.TYPE] == Keys.TYPE_HEADER: extra.append(Keys.COLUMN)
-                res += [item[Keys.META_CLS] + extra]
-            entry[Keys.QUESTION_TYPE_KGCOL_LIST] = res
-            
-            # add question_type_org_kgcol
-            res = []
-            for item in entry[Keys.META]:
-                res += [item[Keys.META_SIM_CLS]] * len(item[Keys.META_TOKS])
-            entry[Keys.QUESTION_TYPE_ORG_KGCOL] = res
-            del entry[Keys.META]
-            if (idx + 1) % 100 == 0:
-                print idx + 1
+            # # add question_tok_kgcol
+            # res = [item[Keys.META_TOKS] for item in entry[Keys.META]]
+            #
+            # entry[Keys.QUESTION_TOK_KGCOL] = res
+            #
+            # # add question_type_kgcol
+            # res = [item[Keys.META_SIM_CLS] for item in entry[Keys.META]]
+            # entry[Keys.QUESTION_TYPE_KGCOL] = res
+            #
+            # # add question_type_kgcol_list
+            # res = []
+            # for item in entry[Keys.META]:
+            #     extra = []
+            #     if item[Keys.TYPE] == Keys.TYPE_KG: extra.append(Keys.ENTITY)
+            #     elif item[Keys.TYPE] == Keys.TYPE_HEADER: extra.append(Keys.COLUMN)
+            #     res += [item[Keys.META_CLS] + extra]
+            # entry[Keys.QUESTION_TYPE_KGCOL_LIST] = res
+            #
+            # # add question_type_org_kgcol
+            # res = []
+            # for item in entry[Keys.META]:
+            #     res += [item[Keys.META_SIM_CLS]] * len(item[Keys.META_TOKS])
+            # entry[Keys.QUESTION_TYPE_ORG_KGCOL] = res
+            # del entry[Keys.META]
+            # if (idx + 1) % 100 == 0:
+            #     print idx + 1
             entry = group_words_col(entry, tables)
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # In[ ]:
@@ -503,7 +669,7 @@ def parse_args():
     parser.add_argument('--out', dest='out',
                         default=None, type=str)
     parser.add_argument('--data_dir', dest='data_dir',
-                        default='data', type=str)
+                        default='data_zhuiyi', type=str)
     parser.add_argument('--out_dir', dest='out_dir',
                         default='tmp', type=str)
     if len(sys.argv) == 1:
