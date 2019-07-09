@@ -13,6 +13,7 @@ def load_data(sql_paths, table_paths, use_small=False):
     sql_data = []
     table_data = {}
 
+
     max_col_num = 0
     for SQL_PATH in sql_paths:
         print "Loading data from %s"%SQL_PATH
