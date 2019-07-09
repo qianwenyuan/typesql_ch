@@ -3,6 +3,7 @@ import io
 import json
 import numpy as np
 from lib.dbengine import DBEngine
+from tqdm import tqdm
 
 def load_data(sql_paths, table_paths, use_small=False):
     if not isinstance(sql_paths, list):
@@ -53,14 +54,14 @@ def load_data(sql_paths, table_paths, use_small=False):
 
 def load_dataset(toy=False, use_small=False, mode='train'):
     print "Loading dataset"
-    dev_sql, dev_table = load_data('data/val/val.json', 'data/val/val.tables.json', use_small=use_small)
+    dev_sql, dev_table = load_data('data/val/val_tok.json', 'data/val/val.tables.json', use_small=use_small)
     dev_db = 'data/val/val.db'
     if mode == 'train':
-        train_sql, train_table = load_data('data/train/train.json', 'data/train/train.tables.json', use_small=use_small)
+        train_sql, train_table = load_data('data/train/train_tok.json', 'data/train/train.tables.json', use_small=use_small)
         train_db = 'data/train/train.db'
         return train_sql, train_table, train_db, dev_sql, dev_table, dev_db
     elif mode == 'test':
-        test_sql, test_table = load_data('data/test/test.json', 'data/test/test.tables.json', use_small=use_small)
+        test_sql, test_table = load_data('data/test/test_tok.json', 'data/test/test.tables.json', use_small=use_small)
         test_db = 'data/test/test.db'
         return dev_sql, dev_table, dev_db, test_sql, test_table, test_db
 
@@ -72,19 +73,25 @@ def best_model_name(args, for_load=False):
     else:
         use_emb = '_train_emb' if args.train_emb else ''
 
+    sel_num_model_name = args.sd + '%s_%s%s.sel_num_model' % (new_data,
+             mode, use_emb)
     agg_model_name = args.sd + '/%s_%s%s.agg_model'%(new_data,
             mode, use_emb)
     sel_model_name = args.sd + '/%s_%s%s.sel_model'%(new_data,
             mode, use_emb)
     cond_model_name = args.sd + '/%s_%s%s.cond_model'%(new_data,
             mode, use_emb)
+    where_rela_model_name = args.sd + '/%s_%s%s.where_rela_model'%(new_data,
+            mode, use_emb)
 
+    sel_num_embed_name = args.sd + '/%s_%s%s.sel_num_embed' % (new_data, mode, use_emb)
     agg_embed_name = args.sd + '/%s_%s%s.agg_embed'%(new_data, mode, use_emb)
     sel_embed_name = args.sd + '/%s_%s%s.sel_embed'%(new_data, mode, use_emb)
     cond_embed_name = args.sd + '/%s_%s%s.cond_embed'%(new_data, mode, use_emb)
+    where_rela_embed_name = args.sd + '/%s_%s%s.where_rela_embed' % (new_data, mode, use_emb)
 
-    return agg_model_name, sel_model_name, cond_model_name,\
-           agg_embed_name, sel_embed_name, cond_embed_name
+    return sel_num_model_name, agg_model_name, sel_model_name, cond_model_name, where_rela_model_name, \
+           sel_num_embed_name, agg_embed_name, sel_embed_name, cond_embed_name, where_rela_embed_name
 
 
 def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data=False):
@@ -104,6 +111,7 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
         sql = sql_data[idxes[i]]
         sel_num = len(sql['sql']['sel'])
         sel_num_seq.append(sel_num)
+        conds_num = len(sql['sql']['conds'])
         if db_content == 0:
             q_seq.append([[x] for x in sql['question_tok']])
             q_type.append([[x] for x in sql["question_type_org_kgcol"]])
@@ -113,12 +121,22 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
         col_type.append(table_data[sql['table_id']]['header_type_kg'])
         col_seq.append(table_data[sql['table_id']]['header_tok'])
         col_num.append(len(table_data[sql['table_id']]['header']))
-        ans_seq.append((sql['sql']['agg'],
-            sql['sql']['sel'],
-            len(sql['sql']['conds']), #number of conditions + selection
-            tuple(x[0] for x in sql['sql']['conds']), #col num rep in condition
-            tuple(x[1] for x in sql['sql']['conds']))) #op num rep in condition, then where is str in cond?
-        query_seq.append(sql['query_tok']) # real query string toks
+        ans_seq.append(
+            (
+                len(sql['sql']['agg']),
+                sql['sql']['sel'],
+                sql['sql']['agg'],
+                conds_num,
+                tuple(x[0] for x in sql['sql']['conds']),
+                tuple(x[1] for x in sql['sql']['conds']),
+                sql['sql']['cond_conn_op'],
+            ))
+        # ans_seq.append((sql['sql']['agg'],
+        #     sql['sql']['sel'],
+        #     len(sql['sql']['conds']), #number of conditions + selection
+        #     tuple(x[0] for x in sql['sql']['conds']), #col num rep in condition
+        #     tuple(x[1] for x in sql['sql']['conds']))) #op num rep in condition, then where is str in cond?
+        # query_seq.append(sql['query_tok']) # real query string toks
         gt_cond_seq.append(sql['sql']['conds']) # list of conds (a list of col, op, str)
         vis_seq.append((sql['question'],
             table_data[sql['table_id']]['header'], sql['query'], [[x] for x in sql['question_tok']]))
@@ -127,11 +145,32 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
     else:
         return q_seq, sel_num_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type
 
+def to_batch_seq_test(sql_data, table_data, idxes, st, ed):
+    q_seq = []
+    col_seq = []
+    col_num = []
+    raw_seq = []
+    table_ids = []
+    for i in range(st, ed):
+        sql = sql_data[idxes[i]]
+        q_seq.append([char for char in sql['question']])
+        col_seq.append([[char for char in header] for header in table_data[sql['table_id']]['header']])
+        col_num.append(len(table_data[sql['table_id']]['header']))
+        raw_seq.append(sql['question'])
+        table_ids.append(sql_data[idxes[i]]['table_id'])
+    return q_seq, col_seq, col_num, raw_seq, table_ids
 
 def to_batch_query(sql_data, idxes, st, ed):
+    # query_gt = []
+    # table_ids = []
+    # for i in range(st, ed):
+    #     query_gt.append(sql_data[idxes[i]]['sql'])
+    #     table_ids.append(sql_data[idxes[i]]['table_id'])
+    # return query_gt, table_ids
     query_gt = []
     table_ids = []
     for i in range(st, ed):
+        sql_data[idxes[i]]['sql']['conds'] = sql_data[idxes[i]]['sql']['conds']
         query_gt.append(sql_data[idxes[i]]['sql'])
         table_ids.append(sql_data[idxes[i]]['table_id'])
     return query_gt, table_ids
@@ -197,6 +236,19 @@ def epoch_exec_acc(model, batch_size, sql_data, table_data, db_path, db_content)
 
     return tot_acc_num / len(sql_data)
 
+def predict_test(model, batch_size, sql_data, table_data, output_path):
+    model.eval()
+    perm = list(range(len(sql_data)))
+    fw = open(output_path,'w')
+    for st in tqdm(range(len(sql_data)//batch_size+1)):
+        ed = (st+1)*batch_size if (st+1)*batch_size < len(perm) else len(perm)
+        st = st * batch_size
+        q_seq, col_seq, col_num, raw_q_seq, table_ids = to_batch_seq_test(sql_data, table_data, perm, st, ed)
+        score = model.forward(q_seq, col_seq, col_num)
+        sql_preds = model.gen_query(score, q_seq, col_seq, raw_q_seq)
+        for sql_pred in sql_preds:
+            fw.writelines(json.dumps(sql_pred,ensure_ascii=False).encode('utf-8')+'\n')
+    fw.close()
 
 def epoch_acc(model, batch_size, sql_data, table_data, pred_entry, db_content, error_print=False):
     model.eval()

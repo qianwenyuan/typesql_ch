@@ -32,9 +32,9 @@ if __name__ == '__main__':
     else:
         USE_SMALL=False
         GPU=True
-        BATCH_SIZE=args.bs
-    TRAIN_ENTRY=(True, True, True)  # (AGG, SEL, COND)
-    TRAIN_AGG, TRAIN_SEL, TRAIN_COND = TRAIN_ENTRY
+        BATCH_SIZE=64
+    TRAIN_ENTRY=(True, True, True, True, True)  # (AGG, SEL_NUM, SEL, COND, WHERE_RELA)
+    TRAIN_SEL_NUM, TRAIN_AGG, TRAIN_SEL, TRAIN_COND, TRAIN_WHERE_RELA = TRAIN_ENTRY
     learning_rate = 1e-3
 
     # sql_data, table_data, val_sql_data, val_table_data, \
