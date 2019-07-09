@@ -187,7 +187,7 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
 
         q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
-        gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq)
+        gt_where_seq = model.generate_gt_where_seq(q_seq, gt_cond_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
         gt_agg_seq = [x[0] for x in ans_seq]
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
