@@ -50,7 +50,7 @@ if __name__ == '__main__':
                                             dev_sql, dev_table, args.db_content, is_list=True, use_htype=False)
     else:
         # word_emb = load_concat_wemb('glove/glove.42B.300d.txt', "para-nmt-50m/data/paragram_sl999_czeng.txt")
-        word_emb = load_word_emb('data/char_embedding')
+        word_emb = load_word_emb('data_zhuiyi/sgns.baidubaike.bigram-char')
 
     model = SQLNet(word_emb, N_word=N_word, gpu=GPU, trainable_emb=args.train_emb, db_content=args.db_content)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay = 0)

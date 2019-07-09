@@ -54,15 +54,15 @@ def load_data(sql_paths, table_paths, use_small=False):
 
 def load_dataset(toy=False, use_small=False, mode='train'):
     print "Loading dataset"
-    dev_sql, dev_table = load_data('data/val/val_tok.json', 'data/val/val.tables.json', use_small=use_small)
-    dev_db = 'data/val/val.db'
+    dev_sql, dev_table = load_data('data_zhuiyi/val/val_tok.json', 'data_zhuiyi/val/val.tables.json', use_small=use_small)
+    dev_db = 'data_zhuiyi/val/val.db'
     if mode == 'train':
-        train_sql, train_table = load_data('data/train/train_tok.json', 'data/train/train.tables.json', use_small=use_small)
-        train_db = 'data/train/train.db'
+        train_sql, train_table = load_data('data_zhuiyi/train/train_tok.json', 'data_zhuiyi/train/train.tables.json', use_small=use_small)
+        train_db = 'data_zhuiyi/train/train.db'
         return train_sql, train_table, train_db, dev_sql, dev_table, dev_db
     elif mode == 'test':
-        test_sql, test_table = load_data('data/test/test_tok.json', 'data/test/test.tables.json', use_small=use_small)
-        test_db = 'data/test/test.db'
+        test_sql, test_table = load_data('data_zhuiyi/test/test_tok.json', 'data_zhuiyi/test/test.tables.json', use_small=use_small)
+        test_db = 'data_zhuiyi/test/test.db'
         return dev_sql, dev_table, dev_db, test_sql, test_table, test_db
 
 def best_model_name(args, for_load=False):
