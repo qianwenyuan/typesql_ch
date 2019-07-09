@@ -19,6 +19,8 @@ class Keys(object):
     # keys for question
     KG_ENTITIES = "kg_entities"
     QUESTION = "question"
+    QUESTION_EX = "queston_tmp"
+    QUESTION_EX1 = "question_ex"
     QUESTION_TOK_KGCOL = "question_tok_kgcol"
     QUESTION_TYPE_KGCOL = "question_type_kgcol"
     QUESTION_TYPE_KGCOL_LIST = "question_type_kgcol_list"
@@ -34,9 +36,11 @@ class Keys(object):
     # keys for table
     TABLE_ID = "id"
     TABLE_ROWS = "rows"
+    HEADER = "header"
     HEADER_TOK = "header_tok"
     HEADER_TYPE = "header_type_kg"
-    
+    HEADER_UNIT = "header_unit"
+
     # old keys
     QUESTION_TOK_TYPE = "question_tok_type" # => q_type_kgcol_list
     QUESTION_TOK = "question_tok" # => q_tok_kgcol
@@ -697,7 +701,7 @@ def parse_args():
     parser.add_argument('--out', dest='out',
                         default=None, type=str)
     parser.add_argument('--data_dir', dest='data_dir',
-                        default='data', type=str)
+                        default='data_zhuiyi', type=str)
     parser.add_argument('--out_dir', dest='out_dir',
                         default='tmp', type=str)
     if len(sys.argv) == 1:

@@ -387,7 +387,7 @@ def get_con_col(tokens, token_space, idx, num_toks, header_tok, header_unit, row
                     if unit:
                         c = c+unit
                     if cont == str(c):
-                        print(cont)
+                        # print(cont)
                         find.append((endIdx, header_tok[i]))
                         continue
                 except:
@@ -539,7 +539,7 @@ def load_and_process_data(file_path, table_path, out_path):
     count = 1
     with codecs.open(out_path, 'w', encoding='utf8') as f:
         for idx, entry in enumerate(data):
-            # print (count)
+            print (count)
             count = count +1
             # change from old keys to new keys
             if Keys.QUESTION_TOK_TYPE in entry:
