@@ -16,11 +16,11 @@ from modules.sqlnet_condition_predict import SQLNetCondPredictor
 
 class SQLNet(nn.Module):
     def __init__(self, word_emb, N_word, N_h=120, N_depth=2,
-            gpu=False, trainable_emb=False, db_content=0):
+            use_ca=True, gpu=True, trainable_emb=False, db_content=1):
         super(SQLNet, self).__init__()
         self.trainable_emb = trainable_emb
         self.db_content = db_content
-
+        self.use_ca = use_ca
         self.gpu = gpu
         self.N_h = N_h
         self.N_depth = N_depth
@@ -55,13 +55,13 @@ class SQLNet(nn.Module):
         self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
 
         # Predict which columns are selected
-        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num)
+        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num, use_ca)
 
         #Predict aggregator
         self.agg_pred = AggPredictor(N_word, N_h, N_depth)
 
         # Predict number of conditions, condition columns, condition operations and condition values
-        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num)
+        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num, use_ca, gpu)
 
         #Predict select column + condition number and columns
         self.selcond_pred = SelCondPredictor(N_word, N_h, N_depth, gpu, db_content)
@@ -71,7 +71,7 @@ class SQLNet(nn.Module):
                 self.max_col_num, self.max_tok_num, gpu, db_content)
 
         # Predict conditions' relation
-        self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth)
+        self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth, use_ca)
 
         self.CE = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax()
@@ -119,33 +119,28 @@ class SQLNet(nn.Module):
         return cur_seq
 
 
-    def generate_gt_where_seq(self, q, col, query):
-        """
-        cur_seq is the indexes (in question toks) of string value in each where cond
-        """
+    def generate_gt_where_seq(self, q, gt_cond_seq):
         ret_seq = []
-        for cur_q, cur_col, cur_query in zip(q, col, query):
-            cur_values = []
-            st = cur_query.index(u'WHERE')+1 if \
-                    u'WHERE' in cur_query else len(cur_query)
-            all_toks = [['<BEG>']] + cur_q + [['<END>']]
-            while st < len(cur_query):
-                ed = len(cur_query) if 'AND' not in cur_query[st:]\
-                        else cur_query[st:].index('AND') + st
-                if 'EQL' in cur_query[st:ed]:
-                    op = cur_query[st:ed].index('EQL') + st
-                elif 'GT' in cur_query[st:ed]:
-                    op = cur_query[st:ed].index('GT') + st
-                elif 'LT' in cur_query[st:ed]:
-                    op = cur_query[st:ed].index('LT') + st
+        for cur_q, ans in zip(q, gt_cond_seq):
+            temp_q = u"".join(cur_q)
+            cur_q = [u'<BEG>'] + cur_q + [u'<END>']
+            record = []
+            record_cond = []
+            for cond in ans:
+                if cond[2] not in temp_q:
+                    record.append((False, cond[2]))
                 else:
-                    raise RuntimeError("No operator in it!")
-
-                this_str = cur_query[op+1:ed]
-                cur_seq = self.get_str_index(all_toks, this_str)
-                cur_values.append(cur_seq)
-                st = ed+1
-            ret_seq.append(cur_values)
+                    record.append((True, cond[2]))
+            for idx, item in enumerate(record):
+                temp_ret_seq = []
+                if item[0]:
+                    temp_ret_seq.append(0)
+                    temp_ret_seq.extend(list(range(temp_q.index(item[1])+1,temp_q.index(item[1])+len(item[1])+1)))
+                    temp_ret_seq.append(len(cur_q)-1)
+                else:
+                    temp_ret_seq.append([0,len(cur_q)-1])
+                record_cond.append(temp_ret_seq)
+            ret_seq.append(record_cond)
         return ret_seq
 
 
