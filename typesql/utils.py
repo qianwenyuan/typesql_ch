@@ -119,8 +119,8 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
         else:
             q_seq.append(sql['question_tok_concol'])
             q_type.append(sql["question_type_concol_list"])
-        col_type.append(table_data[sql['table_id']]['header_type_kg'])
-        col_seq.append(table_data[sql['table_id']]['header_tok'])
+        #col_type.append(table_data[sql['table_id']]['header_type_kg'])
+        col_seq.append(table_data[sql['table_id']]['header'])
         col_num.append(len(table_data[sql['table_id']]['header']))
         ans_seq.append(
             (
@@ -137,14 +137,14 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
         #     len(sql['sql']['conds']), #number of conditions + selection
         #     tuple(x[0] for x in sql['sql']['conds']), #col num rep in condition
         #     tuple(x[1] for x in sql['sql']['conds']))) #op num rep in condition, then where is str in cond?
-        # query_seq.append(sql['query_tok']) # real query string toks
+        #query_seq.append(sql['query_tok']) # real query string toks
         gt_cond_seq.append(sql['sql']['conds']) # list of conds (a list of col, op, str)
         vis_seq.append((sql['question'],
-            table_data[sql['table_id']]['header'], sql['query'], [[x] for x in sql['question_tok']]))
+            table_data[sql['table_id']]['header'], [[x] for x in sql['question_tok']]))
     if ret_vis_data:
-        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type, vis_seq
+        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type, vis_seq
     else:
-        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type
+        return q_seq, sel_num_seq, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type
 
 def to_batch_seq_test(sql_data, table_data, idxes, st, ed):
     q_seq = []
@@ -177,7 +177,7 @@ def to_batch_query(sql_data, idxes, st, ed):
     return query_gt, table_ids
 
 
-def epoch_train(model, optimizer, batch_size, sql_data, table_data, pred_entry, db_content):
+def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
     model.train()
     perm=np.random.permutation(len(sql_data))
     cum_loss = 0.0
@@ -185,14 +185,14 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, pred_entry, 
     while st < len(sql_data):
         ed = st+batch_size if st+batch_size < len(perm) else len(perm)
 
-        q_seq, gt_sel_num, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type = \
+        q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
-        gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq, query_seq)
+        gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
         gt_agg_seq = [x[0] for x in ans_seq]
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
                 gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq, gt_sel_num=gt_sel_num)
-        loss = model.loss(score, ans_seq, pred_entry, gt_where_seq)
+        loss = model.loss(score, ans_seq, gt_where_seq)
         cum_loss += loss.data.cpu().numpy()[0]*(ed - st)
         optimizer.zero_grad()
         loss.backward()
@@ -212,11 +212,11 @@ def epoch_exec_acc(model, batch_size, sql_data, table_data, db_path, db_content)
     st = 0
     while st < len(sql_data):
         ed = st+batch_size if st+batch_size < len(perm) else len(perm)
-        q_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type, raw_data = \
+        q_seq, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type, raw_data = \
             to_batch_seq(sql_data, table_data, perm, st, ed, db_content, ret_vis_data=True)
         raw_q_seq = [x[0] for x in raw_data]
         raw_col_seq = [x[1] for x in raw_data]
-        gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq, query_seq)
+        gt_where_seq = model.generate_gt_where_seq(q_seq, col_seq)
         query_gt, table_ids = to_batch_query(sql_data, perm, st, ed)
         gt_sel_seq = [x[1] for x in ans_seq]
         gt_agg_seq = [x[0] for x in ans_seq]
@@ -260,7 +260,7 @@ def epoch_acc(model, batch_size, sql_data, table_data, pred_entry, db_content, e
     while st < len(sql_data):
         ed = st+batch_size if st+batch_size < len(perm) else len(perm)
 
-        q_seq, col_seq, col_num, ans_seq, query_seq, gt_cond_seq, q_type, col_type,\
+        q_seq, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
          raw_data = to_batch_seq(sql_data, table_data, perm, st, ed, db_content, ret_vis_data=True)
         raw_q_seq = [x[0] for x in raw_data]
         raw_col_seq = [x[1] for x in raw_data]
