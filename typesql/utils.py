@@ -120,7 +120,7 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
             q_seq.append(sql['question_tok_concol'])
             q_type.append(sql["question_type_concol_list"])
         #col_type.append(table_data[sql['table_id']]['header_type_kg'])
-        col_seq.append(table_data[sql['table_id']]['header'])
+        col_seq.append(table_data[sql['table_id']]['header_tok'])
         col_num.append(len(table_data[sql['table_id']]['header']))
         ans_seq.append(
             (
@@ -187,9 +187,9 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
 
         q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
-        gt_where_seq = model.generate_gt_where_seq(q_seq, gt_cond_seq)
+        gt_where_seq = model.generate_gt_where_seq_test(q_seq, gt_cond_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
-        gt_agg_seq = [x[0] for x in ans_seq]
+        # gt_agg_seq = [x[2] for x in ans_seq]
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
                 gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq, gt_sel_num=gt_sel_num)
         loss = model.loss(score, ans_seq, gt_where_seq)
