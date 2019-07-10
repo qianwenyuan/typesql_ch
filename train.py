@@ -36,8 +36,8 @@ if __name__ == '__main__':
     train_sql, train_table, train_db, dev_sql, dev_table, dev_db = load_dataset(use_small=use_small)
 
     #word_emb = load_word_emb('data_zhuiyi/sgns.baidubaike.bigram-char')
-    #word_emb = load_concat_wemb('data_zhuiyi/sgns.baidubaike.bigram-char', 'data_zhuiyi/char_embedding')
-    word_emb = load_concat_wemb('data_zhuiyi/char_embedding', 'data_zhuiyi/char_embedding')
+    word_emb = load_concat_wemb('data_zhuiyi/sgns.baidubaike.bigram-char', 'data_zhuiyi/char_embedding')
+    #word_emb = load_concat_wemb('data_zhuiyi/char_embedding', 'data_zhuiyi/char_embedding')
     model = SQLNet(word_emb, N_word=n_word, use_ca=args.ca, gpu=gpu, trainable_emb=args.train_emb, db_content=args.db_content)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)
 

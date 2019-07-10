@@ -232,10 +232,7 @@ class SQLNet(nn.Module):
                 pr_sel = gt_sel
             else:
                 num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-                print("num:{}".format(num))
 		sel = sel_cond_score.data.cpu().numpy()
-		print("sel:{}".format(sel))
-		
 		pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
             agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len, gt_sel=pr_sel,
                                       gt_sel_num=pr_sel_num)
@@ -271,17 +268,20 @@ class SQLNet(nn.Module):
             if gt_sel:
                 pr_sel = gt_sel
             else:
-                num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+                num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1) +1
 		sel = sel_score.data.cpu().numpy()
+		#temp = len(num)
+		#pr_sel = []
+		#for b in range(temp):
+		#  pr_sel.append(list(np.argsort(-sel[b])[:num[b]]))
+		#  print(pr_sel)
+		#print("final:{}".format(pr_sel))
 		pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
             agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_sel=pr_sel,
                                       gt_sel_num=pr_sel_num)
-
-            cond_score = self.cond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_where,
-                                        gt_cond)
-
+            cond_score = self.cond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_where, gt_cond)
             where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
-            # x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
+	    # x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
             # #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
             # col_inp_var, col_name_len, col_len = self.agg_embed_layer.gen_col_batch(col)
             # x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
@@ -703,8 +703,7 @@ class SQLNet(nn.Module):
 
         return np.array((sel_num_err, sel_err, agg_err, cond_num_err, cond_col_err, cond_op_err, cond_val_err , cond_rela_err)), tot_err
 
-    def gen_query(self, score, q, col, raw_q, raw_col,
-            pred_entry, verbose=False):
+    def gen_query(self, score, q, col, raw_q, reinforce=False, verbose=False):
         def merge_tokens(tok_list, raw_tok_str):
             """
             tok_list: list of string words in current cond
@@ -786,4 +785,3 @@ class SQLNet(nn.Module):
                 cur_query['conds'].append(cur_cond)
             ret_queries.append(cur_query)
         return ret_queries
-

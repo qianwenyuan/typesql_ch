@@ -111,7 +111,7 @@ class SQLNetCondPredictor(nn.Module):
 
     def forward(self, x_emb_var, x_len, col_inp_var, col_name_len,
             col_len, col_num, x_type_emb_var, gt_where, gt_cond):
-        max_x_len = max(x_len)
+	max_x_len = max(x_len)
         B = len(x_len)
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
 
@@ -134,7 +134,6 @@ class SQLNetCondPredictor(nn.Module):
                 hidden=(cond_num_h1, cond_num_h2))
 
         num_att_val = self.cond_num_att(h_num_enc).squeeze()
-
         for idx, num in enumerate(x_len):
             if num < max_x_len:
                 num_att_val[idx, num:] = -100
@@ -142,7 +141,6 @@ class SQLNetCondPredictor(nn.Module):
 
         K_cond_num = (h_num_enc * num_att.unsqueeze(2).expand_as(h_num_enc)).sum(1)
         cond_num_score = self.cond_num_out(K_cond_num)
-
         #Predict the columns of conditions
         e_cond_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.cond_col_name_enc)
         h_col_enc, _ = run_lstm(self.cond_col_lstm, x_emb_concat, x_len)
@@ -171,7 +169,6 @@ class SQLNetCondPredictor(nn.Module):
         for b, num in enumerate(col_num):
             if num < max_col_num:
                 cond_col_score[b, num:] = -100
-
 
         #Predict the operator of conditions
         chosen_col_gt = []
@@ -213,7 +210,6 @@ class SQLNetCondPredictor(nn.Module):
 
         cond_op_score = self.cond_op_out(self.cond_op_out_K(K_cond_op) +
                 self.cond_op_out_col(col_emb)).squeeze()
-
         #Predict the string of conditions
 	xt_str_enc = self.cond_str_x_type(x_type_emb_var)
 
@@ -246,6 +242,7 @@ class SQLNetCondPredictor(nn.Module):
                     cond_str_score[b, :, num:] = -100
         else:
             h_ext = h_str_enc.unsqueeze(1).unsqueeze(1)
+	    ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)
             col_ext = col_emb.unsqueeze(2).unsqueeze(2)
             scores = []
 
@@ -267,7 +264,7 @@ class SQLNetCondPredictor(nn.Module):
 
                 cur_cond_str_score = self.cond_str_out(
                         self.cond_str_out_h(h_ext) + self.cond_str_out_g(g_ext)
-                        + self.cond_str_out_col(col_ext)).squeeze()
+                        + self.cond_str_out_col(col_ext) + self.cond_str_out_ht(ht_ext)).squeeze()
                 for b, num in enumerate(x_len):
                     if num < max_x_len:
                         cur_cond_str_score[b, :, num:] = -100
@@ -288,8 +285,7 @@ class SQLNetCondPredictor(nn.Module):
             cond_str_score = torch.stack(scores, 2)
             for b, num in enumerate(x_len):
                 if num < max_x_len:
-                    cond_str_score[b, :, :, num:] = -100  #[B, IDX, T, TOK_NUM]
-
+                    cond_str_score[b, :, num:] = -100  #[B, IDX, T, TOK_NUM]
         cond_score = (cond_num_score,
                 cond_col_score, cond_op_score, cond_str_score)
 

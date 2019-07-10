@@ -26,7 +26,7 @@ class AggPredictor(nn.Module):
 
     def forward(self, x_emb_var, x_len, col_inp_var=None, col_name_len=None,
                 col_len=None, col_num=None, x_type_emb_var=None, gt_sel=None, gt_sel_num=None):
-        B = len(x_emb_var)
+	B = len(x_emb_var)
         max_x_len = max(x_len)
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
 
@@ -48,7 +48,7 @@ class AggPredictor(nn.Module):
 
         K_agg = (h_enc.unsqueeze(1) * att.unsqueeze(3)).sum(2)
         agg_score = self.agg_out(self.agg_out_K(K_agg) + self.col_out_col(col_emb)).squeeze()
-        return agg_score
+	return agg_score
     # def forward(self, x_emb_var, x_len, agg_emb_var, col_inp_var=None,
     #         col_len=None, x_type_emb_var):
     #     B = len(x_emb_var)
