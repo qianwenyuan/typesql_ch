@@ -181,9 +181,9 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
     model.train()
     perm=np.random.permutation(len(sql_data))
     cum_loss = 0.0
-    st = 0
-    while st < len(sql_data):
-        ed = st+batch_size if st+batch_size < len(perm) else len(perm)
+    for st in tqdm(range(len(sql_data)//batch_size+1)):
+        ed = (st+1)*batch_size if (st+1)*batch_size < len(perm) else len(perm)
+        st = st * batch_size
 
         q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
@@ -193,12 +193,10 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
                 gt_where=gt_where_seq, gt_cond=gt_cond_seq, gt_sel=gt_sel_seq, gt_sel_num=gt_sel_num)
         loss = model.loss(score, ans_seq, gt_where_seq)
-        cum_loss += loss.data.cpu().numpy()[0]*(ed - st)
+        cum_loss += loss.data.cpu().numpy()*(ed - st)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        st = ed
 
     return cum_loss / len(sql_data)
 
@@ -254,28 +252,37 @@ def predict_test(model, batch_size, sql_data, table_data, output_path):
 def epoch_acc(model, batch_size, sql_data, table_data, pred_entry, db_content, error_print=False):
     model.eval()
     perm = list(range(len(sql_data)))
-    st = 0
-    one_acc_num = 0.0
-    tot_acc_num = 0.0
-    while st < len(sql_data):
-        ed = st+batch_size if st+batch_size < len(perm) else len(perm)
-
-        q_seq, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
+    badcase = 0
+    one_acc_num, tot_acc_num, ex_acc_num = 0.0, 0.0, 0.0
+    for st in tqdm(range(len(sql_data)//batch_size+1)):
+        ed = (st+1)*batch_size if (st+1)*batch_size < len(perm) else len(perm)
+        st = st * batch_size
+        q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
          raw_data = to_batch_seq(sql_data, table_data, perm, st, ed, db_content, ret_vis_data=True)
         raw_q_seq = [x[0] for x in raw_data]
-        raw_col_seq = [x[1] for x in raw_data]
+        #raw_col_seq = [x[1] for x in raw_data]
         query_gt, table_ids = to_batch_query(sql_data, perm, st, ed)
-        gt_sel_seq = [x[1] for x in ans_seq]
-        score = model.forward(q_seq, col_seq, col_num, q_type, col_type, pred_entry)
-        pred_queries = model.gen_query(score, q_seq, col_seq,
-                raw_q_seq, raw_col_seq, pred_entry)
-        one_err, tot_err = model.check_acc(raw_data, pred_queries, query_gt, pred_entry, error_print)
-
+        #gt_sel_seq = [x[1] for x in ans_seq]
+	try:
+          score = model.forward(q_seq, col_seq, col_num, q_type, col_type)
+          pred_queries = model.gen_query(score, q_seq, col_seq, raw_q_seq)
+          one_err, tot_err = model.check_acc(raw_data, pred_queries, query_gt)
+        except:
+            badcase += 1
+            print 'badcase', badcase
+            continue
         one_acc_num += (ed-st-one_err)
         tot_acc_num += (ed-st-tot_err)
 
-        st = ed
-    return tot_acc_num / len(sql_data), one_acc_num / len(sql_data)
+	# Execution Accuracy
+        for sql_gt, sql_pred, tid in zip(query_gt, pred_queries, table_ids):
+            ret_gt = engine.execute(tid, sql_gt['sel'], sql_gt['agg'], sql_gt['conds'], sql_gt['cond_conn_op'])
+            try:
+                ret_pred = engine.execute(tid, sql_pred['sel'], sql_pred['agg'], sql_pred['conds'], sql_pred['cond_conn_op'])
+            except:
+                ret_pred = None
+            ex_acc_num += (ret_gt == ret_pred)
+    return one_acc_num / len(sql_data), tot_acc_num / len(sql_data), ex_acc_num / len(sql_data)
 
 
 def load_para_wemb(file_name):

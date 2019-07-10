@@ -7,15 +7,18 @@ import numpy as np
 from net_utils import run_lstm, col_name_encode
 
 class SelNumPredictor(nn.Module):
-    def __init__(self, N_word, N_h, N_depth, use_ca):
+    def __init__(self, N_word, N_h, N_depth):
         super(SelNumPredictor, self).__init__()
         self.N_h = N_h
-        self.use_ca = use_ca
+        self.use_ca = True
 
 
-        self.sel_num_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.sel_num_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                                     num_layers=N_depth, batch_first=True,
                                     dropout=0.3, bidirectional=True)
+	self.sel_colname_enc = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+                num_layers=N_depth, batch_first=True,
+                dropout=0.3, bidirectional=True)
         self.sel_num_att = nn.Linear(N_h, 1)
         self.sel_num_col_att = nn.Linear(N_h, 1)
         self.sel_num_out = nn.Sequential(nn.Linear(N_h, N_h),
@@ -36,7 +39,7 @@ class SelNumPredictor(nn.Module):
         # First use column embeddings to calculate the initial hidden unit
         # Then run the LSTM and predict select number
         e_num_col, col_num = col_name_encode(col_inp_var, col_name_len,
-                                             col_len, self.sel_num_lstm)
+                                             col_len, self.sel_colname_enc)
         num_col_att_val = self.sel_num_col_att(e_num_col).squeeze()
         for idx, num in enumerate(col_num):
             if num < max(col_num):

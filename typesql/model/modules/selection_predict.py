@@ -11,7 +11,7 @@ class SelPredictor(nn.Module):
         super(SelPredictor, self).__init__()
         self.use_ca = use_ca
         self.max_tok_num = max_tok_num
-        self.sel_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.sel_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
         if use_ca:

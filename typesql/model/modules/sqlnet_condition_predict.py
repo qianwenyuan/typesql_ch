@@ -7,7 +7,7 @@ import numpy as np
 from net_utils import run_lstm, col_name_encode
 
 class SQLNetCondPredictor(nn.Module):
-    def __init__(self, N_word, N_h, N_depth, max_col_num, max_tok_num, use_ca, gpu):
+    def __init__(self, N_word, N_h, N_depth, max_col_num, max_tok_num, use_ca, gpu, db_content):
         super(SQLNetCondPredictor, self).__init__()
         self.N_h = N_h
         self.max_tok_num = max_tok_num
@@ -15,7 +15,7 @@ class SQLNetCondPredictor(nn.Module):
         self.gpu = gpu
         self.use_ca = use_ca
 
-        self.cond_num_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.cond_num_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
         self.cond_num_att = nn.Linear(N_h, 1)
@@ -28,7 +28,7 @@ class SQLNetCondPredictor(nn.Module):
         self.cond_num_col2hid1 = nn.Linear(N_h, 2*N_h)
         self.cond_num_col2hid2 = nn.Linear(N_h, 2*N_h)
 
-        self.cond_col_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.cond_col_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
         if use_ca:
@@ -44,7 +44,7 @@ class SQLNetCondPredictor(nn.Module):
         self.cond_col_out_col = nn.Linear(N_h, N_h)
         self.cond_col_out = nn.Sequential(nn.ReLU(), nn.Linear(N_h, 1))
 
-        self.cond_op_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.cond_op_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
         if use_ca:
@@ -59,7 +59,7 @@ class SQLNetCondPredictor(nn.Module):
         self.cond_op_out = nn.Sequential(nn.Linear(N_h, N_h), nn.Tanh(),
                 nn.Linear(N_h, 4))
 
-        self.cond_str_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.cond_str_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
         self.cond_str_decoder = nn.LSTM(input_size=self.max_tok_num,
@@ -70,9 +70,14 @@ class SQLNetCondPredictor(nn.Module):
                 dropout=0.3, bidirectional=True)
         self.cond_str_out_g = nn.Linear(N_h, N_h)
         self.cond_str_out_h = nn.Linear(N_h, N_h)
-        self.cond_str_out_col = nn.Linear(N_h, N_h)
+        self.cond_str_out_ht = nn.Linear(N_h, N_h)
+	self.cond_str_out_col = nn.Linear(N_h, N_h)
         self.cond_str_out = nn.Sequential(nn.ReLU(), nn.Linear(N_h, 1))
-
+	
+        if db_content == 0:
+            self.cond_str_x_type = nn.Linear(N_word/2, N_h)
+        else:
+            self.cond_str_x_type = nn.Linear(N_word, N_h)
         self.softmax = nn.Softmax(dim=-1)
 
 
@@ -210,6 +215,8 @@ class SQLNetCondPredictor(nn.Module):
                 self.cond_op_out_col(col_emb)).squeeze()
 
         #Predict the string of conditions
+	xt_str_enc = self.cond_str_x_type(x_type_emb_var)
+
         h_str_enc, _ = run_lstm(self.cond_str_lstm, x_emb_concat, x_len)
         e_cond_col, _ = col_name_encode(col_inp_var, col_name_len,
                 col_len, self.cond_str_name_enc)
@@ -227,15 +234,16 @@ class SQLNetCondPredictor(nn.Module):
             g_str_s = g_str_s_flat.contiguous().view(B, 4, -1, self.N_h)
 
             h_ext = h_str_enc.unsqueeze(1).unsqueeze(1)
-            g_ext = g_str_s.unsqueeze(3)
+            ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)
+	    g_ext = g_str_s.unsqueeze(3)
             col_ext = col_emb.unsqueeze(2).unsqueeze(2)
 
             cond_str_score = self.cond_str_out(
                     self.cond_str_out_h(h_ext) + self.cond_str_out_g(g_ext) +
-                    self.cond_str_out_col(col_ext)).squeeze()
-            for b, num in enumerate(x_len):
+                    self.cond_str_out_col(col_ext)+ self.cond_str_out_ht(ht_ext)).squeeze()
+	    for b, num in enumerate(x_len):
                 if num < max_x_len:
-                    cond_str_score[b, :, :, num:] = -100
+                    cond_str_score[b, :, num:] = -100
         else:
             h_ext = h_str_enc.unsqueeze(1).unsqueeze(1)
             col_ext = col_emb.unsqueeze(2).unsqueeze(2)

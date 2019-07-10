@@ -11,20 +11,18 @@ class AggPredictor(nn.Module):
     def __init__(self, N_word, N_h, N_depth):
         super(AggPredictor, self).__init__()
 
-        self.agg_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.agg_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
 
-        self.agg_col_name_enc = nn.LSTM(input_size=N_word+N_h,
+        self.agg_col_name_enc = nn.LSTM(input_size=N_word,
                 hidden_size=N_h/2, num_layers=N_depth,
                 batch_first=True, dropout=0.3, bidirectional=True)
         self.agg_att = nn.Linear(N_h, N_h)
-        self.sel_att = nn.Linear(N_h, N_h)
-        self.agg_out_se = nn.Linear(N_word, N_h)
-        self.agg_out_agg = nn.Linear(N_word, N_h)
+	self.agg_out = nn.Sequential(nn.Linear(N_h, N_h), nn.Tanh(), nn.Linear(N_h, 6))
+        self.softmax = nn.Softmax(dim=-1)
         self.agg_out_K = nn.Linear(N_h, N_h)
-        self.agg_out_f = nn.Sequential(nn.Tanh(), nn.Linear(N_h, 1))
-        self.softmax = nn.Softmax() #dim=1
+        self.col_out_col = nn.Linear(N_h, N_h)
 
     def forward(self, x_emb_var, x_len, col_inp_var=None, col_name_len=None,
                 col_len=None, col_num=None, x_type_emb_var=None, gt_sel=None, gt_sel_num=None):

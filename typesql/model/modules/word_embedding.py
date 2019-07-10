@@ -17,13 +17,13 @@ class WordEmbedding(nn.Module):
 
         if trainable:
             print "Using trainable embedding"
-            self.w2i, word_emb_val, _ = word_emb
+            self.w2i, word_emb_val,_ = word_emb
             # tranable when using pretrained model, init embedding weights using prev embedding
             self.embedding = nn.Embedding(len(self.w2i), N_word)
             self.embedding.weight = nn.Parameter(torch.from_numpy(word_emb_val.astype(np.float32)))
         else:
             # else use word2vec or glove
-            _, _, self.word_emb = word_emb
+            _,_,self.word_emb = word_emb
             print "Using fixed embedding for words but trainable embedding for types"
 
 

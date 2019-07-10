@@ -16,11 +16,12 @@ from modules.sqlnet_condition_predict import SQLNetCondPredictor
 
 class SQLNet(nn.Module):
     def __init__(self, word_emb, N_word, N_h=120, N_depth=2,
-            use_ca=True, gpu=True, trainable_emb=False, db_content=1):
+           use_ca=True, gpu=True, trainable_emb=False, db_content=0):
         super(SQLNet, self).__init__()
         self.trainable_emb = trainable_emb
         self.db_content = db_content
-        self.use_ca = use_ca
+
+	self.use_ca = use_ca
         self.gpu = gpu
         self.N_h = N_h
         self.N_depth = N_depth
@@ -55,13 +56,13 @@ class SQLNet(nn.Module):
         self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
 
         # Predict which columns are selected
-        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num, use_ca)
+        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num, use_ca=use_ca)
 
         #Predict aggregator
         self.agg_pred = AggPredictor(N_word, N_h, N_depth)
 
         # Predict number of conditions, condition columns, condition operations and condition values
-        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num, use_ca, gpu)
+        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num,use_ca, gpu, db_content)
 
         #Predict select column + condition number and columns
         self.selcond_pred = SelCondPredictor(N_word, N_h, N_depth, gpu, db_content)
@@ -71,7 +72,7 @@ class SQLNet(nn.Module):
                 self.max_col_num, self.max_tok_num, gpu, db_content)
 
         # Predict conditions' relation
-        self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth, use_ca)
+        self.where_rela_pred = WhereRelationPredictor(N_word, N_h, N_depth, use_ca=use_ca)
 
         self.CE = nn.CrossEntropyLoss()
         self.softmax = nn.Softmax()
@@ -119,28 +120,57 @@ class SQLNet(nn.Module):
         return cur_seq
 
 
-    def generate_gt_where_seq(self, q, gt_cond_seq):
+    def generate_gt_where_seq(self, q, col):
         ret_seq = []
-        for cur_q, ans in zip(q, gt_cond_seq):
-            temp_q = u"".join(cur_q)
-            cur_q = [u'<BEG>'] + cur_q + [u'<END>']
-            record = []
-            record_cond = []
-            for cond in ans:
-                if cond[2] not in temp_q:
-                    record.append((False, cond[2]))
+        for cur_q, cur_query in zip(q, col):
+            cur_values = []
+            st = cur_query.index(u'WHERE') + 1 if \
+                u'WHERE' in cur_query else len(cur_query)
+            all_toks = [['<BEG>']] + cur_q + [['<END>']]
+            while st < len(cur_query):
+                ed = len(cur_query) if 'AND' not in cur_query[st:] \
+                    else cur_query[st:].index('AND') + st
+                if '==' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('==') + st
+                elif '>' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('>') + st
+                elif '<' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('<') + st
+                elif '>=' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('>=') + st
+                elif '<=' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('<=') + st
+                elif '!=' in cur_query[st:ed]:
+                    op = cur_query[st:ed].index('!=') + st
                 else:
-                    record.append((True, cond[2]))
-            for idx, item in enumerate(record):
-                temp_ret_seq = []
-                if item[0]:
-                    temp_ret_seq.append(0)
-                    temp_ret_seq.extend(list(range(temp_q.index(item[1])+1,temp_q.index(item[1])+len(item[1])+1)))
-                    temp_ret_seq.append(len(cur_q)-1)
-                else:
-                    temp_ret_seq.append([0,len(cur_q)-1])
-                record_cond.append(temp_ret_seq)
-            ret_seq.append(record_cond)
+                    raise RuntimeError("No operator in it!")
+
+                this_str = cur_query[op + 1:ed]
+                cur_seq = self.get_str_index(all_toks, this_str)
+                cur_values.append(cur_seq)
+                st = ed + 1
+            ret_seq.append(cur_values)
+        # ret_seq = []
+        # for cur_q, ans in zip(q, gt_cond_seq):
+        #     temp_q = u"".join(cur_q)
+        #     cur_q = [u'<BEG>'] + cur_q + [u'<END>']
+        #     record = []
+        #     record_cond = []
+        #     for cond in ans:
+        #         if cond[2] not in temp_q:
+        #             record.append((False, cond[2]))
+        #         else:
+        #             record.append((True, cond[2]))
+        #     for idx, item in enumerate(record):
+        #         temp_ret_seq = []
+        #         if item[0]:
+        #             temp_ret_seq.append(0)
+        #             temp_ret_seq.extend(list(range(temp_q.index(item[1])+1,temp_q.index(item[1])+len(item[1])+1)))
+        #             temp_ret_seq.append(len(cur_q)-1)
+        #         else:
+        #             temp_ret_seq.append([0,len(cur_q)-1])
+        #         record_cond.append(temp_ret_seq)
+        #     ret_seq.append(record_cond)
         return ret_seq
 
 
@@ -202,8 +232,11 @@ class SQLNet(nn.Module):
                 pr_sel = gt_sel
             else:
                 num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-                sel = sel_cond_score.data.cpu().numpy()
-                pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+                print("num:{}".format(num))
+		sel = sel_cond_score.data.cpu().numpy()
+		print("sel:{}".format(sel))
+		
+		pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
             agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len, gt_sel=pr_sel,
                                       gt_sel_num=pr_sel_num)
             # if pred_agg:
@@ -223,24 +256,24 @@ class SQLNet(nn.Module):
             if pred_where_rela:
                 where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
         else:
-            x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col)
-            col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
+            x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
+	    col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
             x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
-            col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
+            #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
             sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
             if gt_sel_num:
                 pr_sel_num = gt_sel_num
             else:
                 pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-            sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
+	    sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
             if gt_sel:
                 pr_sel = gt_sel
             else:
                 num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-                sel = sel_score.data.cpu().numpy()
-                pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+		sel = sel_score.data.cpu().numpy()
+		pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
             agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_sel=pr_sel,
                                       gt_sel_num=pr_sel_num)
 
@@ -523,7 +556,7 @@ class SQLNet(nn.Module):
     #     return loss
 
 
-    def check_acc(self, vis_info, pred_queries, gt_queries, pred_entry, error_print=False):
+    def check_acc(self, vis_info, pred_queries, gt_queries):
         def pretty_print(vis_data, pred_query, gt_query):
             print "\n----------detailed error prints-----------"
             try:
@@ -545,9 +578,8 @@ class SQLNet(nn.Module):
                     self.COND_OPS[cond[1]] + ' ' + unicode(cond[2]).lower())
             return 'WHERE ' + ' AND '.join(cond_str)
 
-        pred_agg, pred_sel, pred_cond = pred_entry
-
-        B = len(gt_queries)
+        """
+	B = len(gt_queries)
 
         tot_err = agg_err = sel_err = cond_err = 0.0
         cond_num_err = cond_col_err = cond_op_err = cond_val_err = 0.0
@@ -609,7 +641,67 @@ class SQLNet(nn.Module):
                 tot_err += 1
 
         return np.array((agg_err, sel_err, cond_err, cond_num_err, cond_col_err, cond_op_err, cond_val_err)), tot_err
+"""
+	tot_err = sel_num_err = agg_err = sel_err = 0.0
+        cond_num_err = cond_col_err = cond_op_err = cond_val_err = cond_rela_err = 0.0
+        for b, (pred_qry, gt_qry) in enumerate(zip(pred_queries, gt_queries)):
+            good = True
+            sel_pred, agg_pred, where_rela_pred = pred_qry['sel'], pred_qry['agg'], pred_qry['cond_conn_op']
+            sel_gt, agg_gt, where_rela_gt = gt_qry['sel'], gt_qry['agg'], gt_qry['cond_conn_op']
 
+            if where_rela_gt != where_rela_pred:
+                good = False
+                cond_rela_err += 1
+
+            if len(sel_pred) != len(sel_gt):
+                good = False
+                sel_num_err += 1
+
+            pred_sel_dict = {k:v for k,v in zip(list(sel_pred), list(agg_pred))}
+            gt_sel_dict = {k:v for k,v in zip(sel_gt, agg_gt)}
+            if set(sel_pred) != set(sel_gt):
+                good = False
+                sel_err += 1
+            agg_pred = [pred_sel_dict[x] for x in sorted(pred_sel_dict.keys())]
+            agg_gt = [gt_sel_dict[x] for x in sorted(gt_sel_dict.keys())]
+            if agg_pred != agg_gt:
+                good = False
+                agg_err += 1
+
+            cond_pred = pred_qry['conds']
+            cond_gt = gt_qry['conds']
+            if len(cond_pred) != len(cond_gt):
+                good = False
+                cond_num_err += 1
+            else:
+                cond_op_pred, cond_op_gt = {}, {}
+                cond_val_pred, cond_val_gt = {}, {}
+                for p, g in zip(cond_pred, cond_gt):
+                    cond_op_pred[p[0]] = p[1]
+                    cond_val_pred[p[0]] = p[2]
+                    cond_op_gt[g[0]] = g[1]
+                    cond_val_gt[g[0]] = g[2]
+
+                if set(cond_op_pred.keys()) != set(cond_op_gt.keys()):
+                    cond_col_err += 1
+                    good=False
+
+                where_op_pred = [cond_op_pred[x] for x in sorted(cond_op_pred.keys())]
+                where_op_gt = [cond_op_gt[x] for x in sorted(cond_op_gt.keys())]
+                if where_op_pred != where_op_gt:
+                    cond_op_err += 1
+                    good=False
+
+                where_val_pred = [cond_val_pred[x] for x in sorted(cond_val_pred.keys())]
+                where_val_gt = [cond_val_gt[x] for x in sorted(cond_val_gt.keys())]
+                if where_val_pred != where_val_gt:
+                    cond_val_err += 1
+                    good=False
+
+            if not good:
+                tot_err += 1
+
+        return np.array((sel_num_err, sel_err, agg_err, cond_num_err, cond_col_err, cond_op_err, cond_val_err , cond_rela_err)), tot_err
 
     def gen_query(self, score, q, col, raw_q, raw_col,
             pred_entry, verbose=False):
@@ -654,44 +746,44 @@ class SQLNet(nn.Module):
                 ret = ret + tok
             return ret.strip()
 
-        pred_agg, pred_sel, pred_cond = pred_entry
-        agg_score, sel_cond_score, cond_op_str_score = score
-
-        cond_num_score, sel_score, cond_col_score = [x.data.cpu().numpy() for x in sel_cond_score]
-        cond_op_score, cond_str_score = [x.data.cpu().numpy() for x in cond_op_str_score]
-
+	sel_num_score, sel_score, agg_score, cond_score, where_rela_score = score
+        # [64,4,6], [64,14], ..., [64,4]
+        sel_num_score = sel_num_score.data.cpu().numpy()
+        sel_score = sel_score.data.cpu().numpy()
+        agg_score = agg_score.data.cpu().numpy()
+        where_rela_score = where_rela_score.data.cpu().numpy()
         ret_queries = []
-        if pred_agg:
-            B = len(agg_score)
-        elif pred_sel:
-            B = len(sel_score)
-        elif pred_cond:
-            B = len(cond_num_score)
+        B = len(agg_score)
+        cond_num_score,cond_col_score,cond_op_score,cond_str_score =\
+            [x.data.cpu().numpy() for x in cond_score]
         for b in range(B):
             cur_query = {}
-            if pred_agg:
-                cur_query['agg'] = np.argmax(agg_score[b].data.cpu().numpy())
-            if pred_sel:
-                cur_query['sel'] = np.argmax(sel_score[b])
-            if pred_cond:
-                cur_query['conds'] = []
-                cond_num = np.argmax(cond_num_score[b])
-                all_toks = [['<BEG>']] + q[b] + [['<END>']]
-                max_idxes = np.argsort(-cond_col_score[b])[:cond_num]
-                for idx in range(cond_num):
-                    cur_cond = []
-                    cur_cond.append(max_idxes[idx])
-                    cur_cond.append(np.argmax(cond_op_score[b][idx]))
-                    cur_cond_str_toks = []
-                    for str_score in cond_str_score[b][idx]:
-                        str_tok = np.argmax(str_score[:len(all_toks)])
-                        str_val = all_toks[str_tok]
-                        if str_val == ['<END>']:
-                            break
-                        #add string word/grouped words to current cond str tokens ["w1", "w2" ...]
-                        cur_cond_str_toks.append(str_val)
-                    cur_cond.append(merge_tokens(cur_cond_str_toks, raw_q[b]))
-                    cur_query['conds'].append(cur_cond)
+            cur_query['sel'] = []
+            cur_query['agg'] = []
+            sel_num = np.argmax(sel_num_score[b])
+            max_col_idxes = np.argsort(-sel_score[b])[:sel_num]
+            # find the most-probable columns' indexes
+            max_agg_idxes = np.argsort(-agg_score[b])[:sel_num]
+            cur_query['sel'].extend([int(i) for i in max_col_idxes])
+            cur_query['agg'].extend([i[0] for i in max_agg_idxes])
+            cur_query['cond_conn_op'] = np.argmax(where_rela_score[b])
+            cur_query['conds'] = []
+            cond_num = np.argmax(cond_num_score[b])
+            all_toks = ['<BEG>'] + q[b] + ['<END>']
+            max_idxes = np.argsort(-cond_col_score[b])[:cond_num]
+            for idx in range(cond_num):
+                cur_cond = []
+                cur_cond.append(max_idxes[idx]) # where-col
+                cur_cond.append(np.argmax(cond_op_score[b][idx])) # where-op
+                cur_cond_str_toks = []
+                for str_score in cond_str_score[b][idx]:
+                    str_tok = np.argmax(str_score[:len(all_toks)])
+                    str_val = all_toks[str_tok]
+                    if str_val == '<END>':
+                        break
+                    cur_cond_str_toks.append(str_val)
+                cur_cond.append(merge_tokens(cur_cond_str_toks, raw_q[b]))
+                cur_query['conds'].append(cur_cond)
             ret_queries.append(cur_query)
-
         return ret_queries
+

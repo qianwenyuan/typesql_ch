@@ -12,10 +12,13 @@ class WhereRelationPredictor(nn.Module):
         self.N_h = N_h
         self.use_ca = use_ca
 
-        self.where_rela_lstm = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.where_rela_lstm = nn.LSTM(input_size=N_word*2, hidden_size=N_h/2,
                                     num_layers=N_depth, batch_first=True,
                                     dropout=0.3, bidirectional=True)
-        self.where_rela_att = nn.Linear(N_h, 1)
+        self.where_colname_enc = nn.LSTM(input_size=N_word,
+                hidden_size=N_h/2, num_layers=N_depth,
+                batch_first=True, dropout=0.3, bidirectional=True)
+	self.where_rela_att = nn.Linear(N_h, 1)
         self.where_rela_col_att = nn.Linear(N_h, 1)
         self.where_rela_out = nn.Sequential(nn.Linear(N_h, N_h), nn.Tanh(), nn.Linear(N_h,3))
         self.softmax = nn.Softmax(dim=-1)
@@ -34,7 +37,7 @@ class WhereRelationPredictor(nn.Module):
         # First use column embeddings to calculate the initial hidden unit
         # Then run the LSTM and predict select number
         e_num_col, col_num = col_name_encode(col_inp_var, col_name_len,
-                                             col_len, self.where_rela_lstm)
+                                             col_len, self.where_colname_enc)
         col_att_val = self.where_rela_col_att(e_num_col).squeeze()
         for idx, num in enumerate(col_num):
             if num < max(col_num):
