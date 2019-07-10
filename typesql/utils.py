@@ -4,6 +4,7 @@ import json
 import numpy as np
 from lib.dbengine import DBEngine
 from tqdm import tqdm
+from pyhanlp import *
 
 def load_data(sql_paths, table_paths, use_small=False):
     if not isinstance(sql_paths, list):
@@ -120,7 +121,29 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
             q_seq.append(sql['question_tok_concol'])
             q_type.append(sql["question_type_concol_list"])
         #col_type.append(table_data[sql['table_id']]['header_type_kg'])
-        col_seq.append(table_data[sql['table_id']]['header_tok'])
+
+        # Parse for the header toks
+        header_toks = []
+        for column in table_data[sql['table_id']]['header']:
+            if column.find("(") > -1 and column.find(")") > -1 or column.find(u'（') > -1 and column.find(u'）') > -1:
+                if len(column) > column.find(')'):
+                    column = column[0: column.find(u'('):] + column[column.find(u')') + 1::]
+                elif len(column) > column.find(u'）'):
+                    column = column[0: column.find(u'（'):] + column[column.find(u'）') + 1::]
+            column.replace(u'一', '1')
+            column.replace(u'二', '2')
+            column.replace(u'三', '3')
+            column.replace(u'四', '4')
+            column.replace(u'五', '5')
+            column.replace(u'六', '6')
+            column.replace(u'七', '7')
+            column.replace(u'八', '8')
+            column.replace(u'九', '9')
+            column.replace(u'零', '0')
+            column.replace(u'一', '1')
+            header_toks.append([term.word for term in HanLP.segment(column)])
+
+        col_seq.append(header_toks)
         col_num.append(len(table_data[sql['table_id']]['header']))
         ans_seq.append(
             (
