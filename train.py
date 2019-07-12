@@ -104,8 +104,8 @@ if __name__ == '__main__':
         print 'Best Execution: %.3f at epoch %d' % (best_ex, best_ex_idx)
         if (i + 1) % 10 == 0:
             print 'Best val acc: %s\nOn epoch individually %s' % (
-                (best_sn, best_sc, best_sa, best_wn, best_wc, best_wo, best_wv),
-                (best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx))
+                (best_sn, best_sc, best_sa, best_wn, best_wc, best_wo, best_wv, best_wr),
+                (best_sn_idx, best_sc_idx, best_sa_idx, best_wn_idx, best_wc_idx, best_wo_idx, best_wv_idx, best_wr_idx))
 
     # N_word=300
     # B_word=42

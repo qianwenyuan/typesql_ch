@@ -674,7 +674,7 @@ class SQLNet(nn.Module):
 
         return np.array((agg_err, sel_err, cond_err, cond_num_err, cond_col_err, cond_op_err, cond_val_err)), tot_err
 """
-	tot_err = sel_num_err = agg_err = sel_err = 0.0
+        tot_err = sel_num_err = agg_err = sel_err = 0.0
         cond_num_err = cond_col_err = cond_op_err = cond_val_err = cond_rela_err = 0.0
         for b, (pred_qry, gt_qry) in enumerate(zip(pred_queries, gt_queries)):
             good = True
@@ -777,7 +777,12 @@ class SQLNet(nn.Module):
                 ret = ret + tok
             return ret.strip()
 
-	sel_num_score, sel_score, agg_score, cond_score, where_rela_score = score
+        sel_cond_score, agg_score, cond_op_str_score, where_rela_score = score
+
+        sel_num_score, cond_num_score, sel_score, cond_col_score \
+            = [x.data.cpu().numpy() for x in sel_cond_score]
+        cond_op_score, cond_str_score = [x.data.cpu().numpy() for x in cond_op_str_score]
+
         # [64,4,6], [64,14], ..., [64,4]
         sel_num_score = sel_num_score.data.cpu().numpy()
         sel_score = sel_score.data.cpu().numpy()
@@ -785,8 +790,7 @@ class SQLNet(nn.Module):
         where_rela_score = where_rela_score.data.cpu().numpy()
         ret_queries = []
         B = len(agg_score)
-        cond_num_score,cond_col_score,cond_op_score,cond_str_score =\
-            [x.data.cpu().numpy() for x in cond_score]
+
         for b in range(B):
             cur_query = {}
             cur_query['sel'] = []
