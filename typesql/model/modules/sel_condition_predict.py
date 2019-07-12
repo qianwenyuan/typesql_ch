@@ -16,20 +16,26 @@ class SelCondPredictor(nn.Module):
             in_size = N_word+N_word/2
         else:
             in_size = N_word+N_word
+
         self.selcond_lstm = nn.LSTM(input_size=in_size, hidden_size=N_h/2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
-        self.ty_num_out = nn.Linear(N_h, N_h)
-        self.cond_num_out = nn.Sequential(nn.Tanh(), nn.Linear(N_h, 5))
-        self.selcond_name_enc = nn.LSTM(input_size=N_word, hidden_size=N_h/2,
+        self.selcond_name_enc = nn.LSTM(input_size=N_word, hidden_size=N_h / 2,
                 num_layers=N_depth, batch_first=True,
                 dropout=0.3, bidirectional=True)
-        self.num_type_att = nn.Linear(N_h, N_h)
+
+        self.ty_sel_num_out = nn.Linear(N_h, N_h)
+        self.sel_num_out = nn.Sequential(nn.Tanh(), nn.Linear(N_h, 4))
+        self.sel_num_type_att = nn.Linear(N_h, N_h)
 
         self.sel_att = nn.Linear(N_h, N_h)
         self.sel_out_K = nn.Linear(N_h, N_h)
         self.sel_out_col = nn.Linear(N_h, N_h)
         self.sel_out = nn.Sequential(nn.Tanh(), nn.Linear(N_h, 1))
+
+        self.ty_cond_num_out = nn.Linear(N_h, N_h)
+        self.cond_num_out = nn.Sequential(nn.Tanh(), nn.Linear(N_h, 5))
+        self.cond_num_type_att = nn.Linear(N_h, N_h)
 
         self.cond_col_att = nn.Linear(N_h, N_h)
         self.cond_col_out_K = nn.Linear(N_h, N_h)
@@ -46,11 +52,32 @@ class SelCondPredictor(nn.Module):
         max_col_len = max(col_len)
         B = len(x_len)
 
-        #Predict the selection condition
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
         e_col, _ = run_lstm(self.selcond_name_enc, col_inp_var, col_len)
         h_enc, _ = run_lstm(self.selcond_lstm, x_emb_concat, x_len)
 
+        # Predict the number of selected columns
+        # att_sel_num_type_val:(B, max_col_len, max_x_len)
+        att_sel_num_type_val = torch.bmm(e_col, self.sel_num_type_att(h_enc).transpose(1, 2))
+
+        for idx, num in enumerate(col_len):
+            if num < max_col_len:
+                att_sel_num_type_val[idx, num:, :] = -100
+        for idx, num in enumerate(x_len):
+            if num < max_x_len:
+                att_sel_num_type_val[idx, :, num:] = -100
+
+        # att_sel_num_type: (B, max_col_len, max_x_len)
+        att_sel_num_type = self.softmax(att_sel_num_type_val.view((-1, max_x_len))).view(B, -1, max_x_len)
+        # h_enc.unsqueeze(1): (B, 1, max_x_len, hid_dim)
+        # att_sel_num_type.unsqueeze(3): (B, max_col_len, max_x_len, 1)
+        # K_num_type (B, max_col_len, hid_dim)
+        K_sel_num_type = (h_enc.unsqueeze(1) * att_sel_num_type.unsqueeze(3)).sum(2).sum(1)
+        # K_sel_num: (B, hid_dim)
+        # K_sel_num_type (B, hid_dim)
+        sel_num_score = self.sel_num_out(self.ty_sel_num_out(K_sel_num_type))
+
+        #Predict the selection condition
         #att_val: (B, max_col_len, max_x_len)
         sel_att_val = torch.bmm(e_col, self.sel_att(h_enc).transpose(1, 2))
         for idx, num in enumerate(x_len):
@@ -67,25 +94,25 @@ class SelCondPredictor(nn.Module):
                 sel_score[idx, num:] = -100
 
         # Predict the number of conditions
-        #att_num_type_val:(B, max_col_len, max_x_len)
-        att_num_type_val = torch.bmm(e_col, self.num_type_att(h_enc).transpose(1, 2))
+        #att_cond_num_type_val:(B, max_col_len, max_x_len)
+        att_cond_num_type_val = torch.bmm(e_col, self.cond_num_type_att(h_enc).transpose(1, 2))
 
         for idx, num in enumerate(col_len):
             if num < max_col_len:
-                att_num_type_val[idx, num:, :] = -100
+                att_cond_num_type_val[idx, num:, :] = -100
         for idx, num in enumerate(x_len):
             if num < max_x_len:
-                att_num_type_val[idx, :, num:] = -100
+                att_cond_num_type_val[idx, :, num:] = -100
 
-        #att_num_type: (B, max_col_len, max_x_len)
-        att_num_type = self.softmax(att_num_type_val.view((-1, max_x_len))).view(B, -1, max_x_len)
+        #att_cond_num_type: (B, max_col_len, max_x_len)
+        att_cond_num_type = self.softmax(att_cond_num_type_val.view((-1, max_x_len))).view(B, -1, max_x_len)
         #h_enc.unsqueeze(1): (B, 1, max_x_len, hid_dim)
-        #att_num_type.unsqueeze(3): (B, max_col_len, max_x_len, 1)
+        #att_cond_num_type.unsqueeze(3): (B, max_col_len, max_x_len, 1)
         #K_num_type (B, max_col_len, hid_dim)
-        K_num_type = (h_enc.unsqueeze(1) * att_num_type.unsqueeze(3)).sum(2).sum(1)
+        K_cond_num_type = (h_enc.unsqueeze(1) * att_cond_num_type.unsqueeze(3)).sum(2).sum(1)
         #K_cond_num: (B, hid_dim)
-        #K_num_type (B, hid_dim)
-        cond_num_score = self.cond_num_out(self.ty_num_out(K_num_type))
+        #K_cond_num_type (B, hid_dim)
+        cond_num_score = self.cond_num_out(self.ty_cond_num_out(K_cond_num_type))
 
         #Predict the columns of conditions
         if gt_sel is None:
@@ -122,6 +149,6 @@ class SelCondPredictor(nn.Module):
             if num < max_col_len:
                 cond_col_score[b, num:] = -100
 
-        sel_cond_score = (cond_num_score, sel_score, cond_col_score)
+        sel_cond_score = (sel_num_score, cond_num_score, sel_score, cond_col_score)
 
         return sel_cond_score

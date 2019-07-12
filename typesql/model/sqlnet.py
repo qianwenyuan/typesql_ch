@@ -38,8 +38,8 @@ class SQLNet(nn.Module):
         else:
             is_train = False
 
-        self.sel_num_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
-                self.SQL_TOK, trainable=is_train)
+        # self.sel_num_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
+        #         self.SQL_TOK, trainable=is_train)
         self.agg_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=is_train)
         self.sel_type_embed_layer = WordEmbedding(word_emb, N_word, gpu,
@@ -52,19 +52,19 @@ class SQLNet(nn.Module):
         self.embed_layer = WordEmbedding(word_emb, N_word, gpu,
                 self.SQL_TOK, trainable=trainable_emb)
 
-        # Predict selected column number
-        self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
-
-        # Predict which columns are selected
-        self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num, use_ca=use_ca)
+        # # Predict selected column number
+        # self.sel_num = SelNumPredictor(N_word, N_h, N_depth)
+        #
+        # # Predict which columns are selected
+        # self.sel_pred = SelPredictor(N_word, N_h, N_depth, self.max_tok_num, use_ca=use_ca)
 
         #Predict aggregator
         self.agg_pred = AggPredictor(N_word, N_h, N_depth)
 
-        # Predict number of conditions, condition columns, condition operations and condition values
-        self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num,use_ca, gpu, db_content)
+        # # Predict number of conditions, condition columns, condition operations and condition values
+        # self.cond_pred = SQLNetCondPredictor(N_word, N_h, N_depth, self.max_col_num, self.max_tok_num,use_ca, gpu, db_content)
 
-        #Predict select column + condition number and columns
+        #Predict selected column number + select column + condition number and columns
         self.selcond_pred = SelCondPredictor(N_word, N_h, N_depth, gpu, db_content)
 
         #Predict condition operators and string values
@@ -314,87 +314,42 @@ class SQLNet(nn.Module):
                 where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
         else:
             x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
-	    col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
-            """for i, len1 in enumerate(col_name_len):
-		if len1==0:
-		    name = []
-	   	    for b in col:
-		        for col_toks in b:
-			    name = name + col_toks
-	   	    for ii, tok in enumerate(name):
-			if ii == i:
-			    for tok1 in tok:
-			        print("{}".format(tok1.encode('utf-8')))   
-		    print("0 idx = {}".format(i))"""
-	    #if col_name_len.any()==0:
-	    #	print("col_inp_var:{}".format(col_inp_var.encode('utf-8')))
-	    #print("col_inp_var:{} col_name_len:{} col_len:{}".format(col_inp_var.shape, col_name_len.shape, col_len.shape))
-	    x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
+            col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
+            x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
             #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
-            sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
-            if gt_sel_num:
-                pr_sel_num = gt_sel_num
-            else:
-                pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-	    sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
+            sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel, sel_cond_score)
+            cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
+                                                 gt_where, gt_cond, sel_cond_score)
+            where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num,
+                                                    x_type_emb_var)
 
-            if gt_sel:
-                pr_sel = gt_sel
-            else:
-                num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1) +1
-		sel = sel_score.data.cpu().numpy()
-		#temp = len(num)
-		#pr_sel = []
-		#for b in range(temp):
-		#  pr_sel.append(list(np.argsort(-sel[b])[:num[b]]))
-		#  print(pr_sel)
-		#print("final:{}".format(pr_sel))
-		pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
-            agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_sel=pr_sel,
-                                      gt_sel_num=pr_sel_num)
-            cond_score = self.cond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_where, gt_cond)
-            where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
-	    # x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
-            # #col_inp_var, col_len = self.embed_layer.gen_x_batch(col, col, is_list=True)
-            # col_inp_var, col_name_len, col_len = self.agg_embed_layer.gen_col_batch(col)
-            # x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
-            # col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
-            # agg_emb_var = self.embed_layer.gen_agg_batch(q)
-            # max_x_len = max(x_len)
+            # sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
             #
-            # if pred_sel_num and pred_agg and pred_sel:
-            #     sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
-            #     if gt_sel_num:
-            #         pre_sel_num = gt_sel_num
-            #     else:
-            #         pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-            #     sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            # if gt_sel_num:
+            #     pr_sel_num = gt_sel_num
+            # else:
+            #     pr_sel_num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+	        # sel_score = self.sel_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
             #
-            #     if gt_sel:
-            #          pr_sel = gt_sel
-            #     else:
-            #         num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
-            #         sel = sel_cond_score.data.cpu().numpy()
-            #         pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
-            #     agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len, gt_sel=pr_sel, gt_sel_num=pr_sel_num)
-            # # if pred_agg:
-            # #     agg_score = self.agg_pred(x_emb_var, x_len, agg_emb_var, col_inp_var, col_len)
-            #
-            # # if pred_sel:
-            # #     sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
-            #
-            # if pred_cond:
-            #     cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
-            #                                         gt_where, gt_cond, sel_cond_score)
-            #
-            # if pred_where_rela:
-            #     where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num)
-
-        return (sel_num_score, sel_score, agg_score, cond_score, where_rela_score)
+            # if gt_sel:
+            #     pr_sel = gt_sel
+            # else:
+            #     num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1) +1
+		    # sel = sel_score.data.cpu().numpy()
+		    # pr_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+            # agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_sel=pr_sel,
+            #                       gt_sel_num=pr_sel_num)
+            # cond_score = self.cond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var, gt_where, gt_cond)
+            # where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
+        return (sel_cond_score, agg_score, cond_op_str_score, where_rela_score)
 
     def loss(self, score, truth_num, gt_where):
-        sel_num_score, sel_score, agg_score, cond_score, where_rela_score = score
+        sel_cond_score, agg_score, cond_op_str_score, where_rela_score = score
+
+        sel_num_score, cond_num_score, sel_score, cond_col_score = sel_cond_score
+        cond_op_score, cond_str_score = cond_op_str_score
 
         B = len(truth_num)
         loss = 0
@@ -435,8 +390,6 @@ class SQLNet(nn.Module):
                 sel_agg_truth_var = Variable(data)
             sel_agg_pred = agg_score[b, :len(truth_num[b][1])]
             loss += (self.CE(sel_agg_pred, sel_agg_truth_var)) / len(truth_num)
-
-        cond_num_score, cond_col_score, cond_op_score, cond_str_score = cond_score
 
         # Evaluate the number of conditions
         cond_num_truth = map(lambda x: x[3], truth_num)

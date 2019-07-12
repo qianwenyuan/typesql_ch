@@ -24,30 +24,45 @@ class AggPredictor(nn.Module):
         self.agg_out_K = nn.Linear(N_h, N_h)
         self.col_out_col = nn.Linear(N_h, N_h)
 
-    def forward(self, x_emb_var, x_len, col_inp_var=None, col_name_len=None,
-                col_len=None, col_num=None, x_type_emb_var=None, gt_sel=None, gt_sel_num=None):
-	B = len(x_emb_var)
+    def forward(self, x_emb_var, x_len, col_inp_var=None, col_len=None,
+                x_type_emb_var=None, gt_sel=None, sel_cond_score=None):
+        B = len(x_emb_var)
         max_x_len = max(x_len)
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
 
-        e_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.agg_col_name_enc)
+        chosen_sel_col_gt = []
+        if gt_sel is None:
+            if sel_cond_score is None:
+                raise Exception("""In the test mode, sel_num_score and sel_col_score
+                                        should be passed in order to predict aggregation!""")
+            sel_num_score, _, sel_score, _ = sel_cond_score
+            sel_nums = np.argmax(sel_num_score.data.cpu().numpy(), axis=1)
+            sel_col_scores = sel_score.data.cpu().numpy()
+            chosen_sel_col_gt = [list(np.argsort(-sel_col_scores[b])[:sel_nums[b]]) for b in range(len(sel_nums))]
+        else:
+            chosen_sel_col_gt = [[x[0] for x in one_gt_sel] for one_gt_sel in gt_sel]
+
         h_enc, _ = run_lstm(self.agg_lstm, x_emb_concat, x_len)
+        e_col, _ = run_lstm(self.agg_col_name_enc, col_inp_var, col_len)
 
-        col_emb = []
+        sel_col_emb = []
         for b in range(B):
-            cur_col_emb = torch.stack([e_col[b, x] for x in gt_sel[b]] + [e_col[b, 0]] * (4 - len(gt_sel[b])))
-            col_emb.append(cur_col_emb)
-        col_emb = torch.stack(col_emb)
+            cur_sel_col_emb = torch.stack([e_col[b, x]
+                                       for x in chosen_sel_col_gt[b]] + [e_col[b, 0]] *
+                                      (4 - len(chosen_sel_col_gt[b])))  # Pad the columns to maximum (4)
+            sel_col_emb.append(cur_sel_col_emb)
+        sel_col_emb = torch.stack(sel_col_emb)
 
-        att_val = torch.matmul(self.agg_att(h_enc).unsqueeze(1), col_emb.unsqueeze(3)).squeeze()  # .transpose(1,2))
-
+        agg_att_val = torch.matmul(self.agg_att(h_enc).unsqueeze(1),
+                                  sel_col_emb.unsqueeze(3)).squeeze()
         for idx, num in enumerate(x_len):
             if num < max_x_len:
-                att_val[idx, num:] = -100
-        att = self.softmax(att_val.view(B * 4, -1)).view(B, 4, -1)
+                agg_att_val[idx, :, num:] = -100
+        agg_att = self.softmax(agg_att_val.view(B * 4, -1)).view(B, 4, -1)
+        K_agg = (h_enc.unsqueeze(1) * agg_att.unsqueeze(3)).sum(2)
 
-        K_agg = (h_enc.unsqueeze(1) * att.unsqueeze(3)).sum(2)
-        agg_score = self.agg_out(self.agg_out_K(K_agg) + self.col_out_col(col_emb)).squeeze()
+        agg_score = self.agg_out(self.agg_out_K(K_agg) + self.col_out_col(sel_col_emb)).squeeze()
+
 	return agg_score
     # def forward(self, x_emb_var, x_len, agg_emb_var, col_inp_var=None,
     #         col_len=None, x_type_emb_var):
