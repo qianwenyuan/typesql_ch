@@ -122,15 +122,15 @@ class SelCondPredictor(nn.Module):
             # gt_sel = np.argmax(sel_score.data.cpu().numpy(), axis=1)
             chosen_sel_col_gt = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
         else:
-            chosen_sel_col_gt = [[x[0] for x in one_gt_sel] for one_gt_sel in gt_sel]
+            chosen_sel_col_gt = [[x for x in one_gt_sel] for one_gt_sel in gt_sel]
 
-            sel_col_emb = []
-            for b in range(B):
-                cur_sel_col_emb = torch.stack([e_col[b, x]
-                                               for x in chosen_sel_col_gt[b]] + [e_col[b, 0]] *
-                                              (4 - len(chosen_sel_col_gt[b])))  # Pad the columns to maximum (4)
-                sel_col_emb.append(cur_sel_col_emb)
-            sel_col_emb = torch.stack(sel_col_emb)
+        sel_col_emb = []
+        for b in range(B):
+            cur_sel_col_emb = torch.stack([e_col[b, x] for x in chosen_sel_col_gt[b]] + 
+		[e_col[b, 0]] * 
+		(max_col_len - len(chosen_sel_col_gt[b])))  # Pad the columns to maximum (4)
+            sel_col_emb.append(cur_sel_col_emb)
+        sel_col_emb = torch.stack(sel_col_emb)
 
         # chosen_sel_idx = torch.LongTensor(gt_sel)
         #aux_range (B) (0,1,...)
@@ -150,25 +150,22 @@ class SelCondPredictor(nn.Module):
         #
         #
         # att_sel_val = torch.bmm(self.col_att(h_enc), chosen_e_col.unsqueeze(2)).squeeze()
-        att_sel_val = torch.matmul(self.col_att(h_enc).unsqueeze(1),
+	att_sel_val = torch.matmul(self.col_att(h_enc).unsqueeze(1),
                                    sel_col_emb.unsqueeze(3)).squeeze()
-        col_att_val = torch.bmm(e_col, self.cond_col_att(h_enc).transpose(1, 2))
-        for idx, num in enumerate(x_len):
+	col_att_val = torch.bmm(e_col, self.cond_col_att(h_enc).transpose(1, 2))
+	for idx, num in enumerate(x_len):
             if num < max_x_len:
                 col_att_val[idx, :, num:] = -100
                 att_sel_val[idx, num:] = -100
 
-        sel_att = self.softmax(att_sel_val.view(B * 4, -1)).view(B, 4, -1)
-
+        sel_att = self.softmax(att_sel_val.view(B * max_col_len, -1)).view(B, max_col_len, -1)
         #K_sel_agg = (h_enc * sel_att.unsqueeze(2).expand_as(h_enc)).sum(1)
         K_sel_agg = (h_enc.unsqueeze(1) * sel_att.unsqueeze(3)).sum(2)
-
         col_att = self.softmax(col_att_val.view((-1, max_x_len))).view(B, -1, max_x_len)
-        K_cond_col = (h_enc.unsqueeze(1) * col_att.unsqueeze(3)).sum(2)
-
-        cond_col_score = self.cond_col_out(self.cond_col_out_K(K_cond_col)
+	K_cond_col = (h_enc.unsqueeze(1) * col_att.unsqueeze(3)).sum(2)
+	cond_col_score = self.cond_col_out(self.cond_col_out_K(K_cond_col)
                 + self.cond_col_out_col(e_col)
-                + self.cond_col_out_sel(K_sel_agg.unsqueeze(1).expand_as(K_cond_col))).squeeze()
+                + self.cond_col_out_sel(K_sel_agg.expand_as(K_cond_col))).squeeze()
 
         for b, num in enumerate(col_len):
             if num < max_col_len:

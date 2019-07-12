@@ -24,7 +24,7 @@ class AggPredictor(nn.Module):
         self.agg_out_K = nn.Linear(N_h, N_h)
         self.col_out_col = nn.Linear(N_h, N_h)
 
-    def forward(self, x_emb_var, x_len, col_inp_var=None, col_len=None,
+    def forward(self, x_emb_var, x_len, col_inp_var=None, col_len=None, col_name_len=None,
                 x_type_emb_var=None, gt_sel=None, sel_cond_score=None):
         B = len(x_emb_var)
         max_x_len = max(x_len)
@@ -40,10 +40,11 @@ class AggPredictor(nn.Module):
             sel_col_scores = sel_score.data.cpu().numpy()
             chosen_sel_col_gt = [list(np.argsort(-sel_col_scores[b])[:sel_nums[b]]) for b in range(len(sel_nums))]
         else:
-            chosen_sel_col_gt = [[x[0] for x in one_gt_sel] for one_gt_sel in gt_sel]
+            chosen_sel_col_gt = [[x for x in one_gt_sel] for one_gt_sel in gt_sel]
 
         h_enc, _ = run_lstm(self.agg_lstm, x_emb_concat, x_len)
-        e_col, _ = run_lstm(self.agg_col_name_enc, col_inp_var, col_len)
+        e_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.agg_col_name_enc)
+	#e_col, _ = run_lstm(self.agg_col_name_enc, col_inp_var, col_len)
 
         sel_col_emb = []
         for b in range(B):

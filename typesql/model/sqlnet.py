@@ -319,9 +319,8 @@ class SQLNet(nn.Module):
             #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
 
             sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, x_type_emb_var, gt_sel)
-            agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel, sel_cond_score)
-            cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
-                                                 gt_where, gt_cond, sel_cond_score)
+            agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_len, col_name_len, x_type_emb_var, gt_sel, sel_cond_score)
+            cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, col_name_len, x_type_emb_var, gt_where, gt_cond, sel_cond_score)
             where_rela_score = self.where_rela_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num,
                                                     x_type_emb_var)
 
@@ -784,8 +783,8 @@ class SQLNet(nn.Module):
         cond_op_score, cond_str_score = [x.data.cpu().numpy() for x in cond_op_str_score]
 
         # [64,4,6], [64,14], ..., [64,4]
-        sel_num_score = sel_num_score.data.cpu().numpy()
-        sel_score = sel_score.data.cpu().numpy()
+        #sel_num_score = sel_num_score.data.cpu().numpy()
+        #sel_score = sel_score.data.cpu().numpy()
         agg_score = agg_score.data.cpu().numpy()
         where_rela_score = where_rela_score.data.cpu().numpy()
         ret_queries = []

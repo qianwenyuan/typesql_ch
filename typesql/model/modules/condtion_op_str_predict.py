@@ -28,7 +28,7 @@ class CondOpStrPredictor(nn.Module):
                 dropout=0.3, bidirectional=True)
         self.cond_op_out_col = nn.Linear(N_h, N_h)
         self.cond_op_out = nn.Sequential(nn.Linear(N_h, N_h), nn.Tanh(),
-                nn.Linear(N_h, 3))
+                nn.Linear(N_h, 4))
 
         self.cond_str_decoder = nn.LSTM(input_size=self.max_tok_num,
                 hidden_size=N_h, num_layers=N_depth,
@@ -73,7 +73,7 @@ class CondOpStrPredictor(nn.Module):
         return ret_inp_var, ret_len #[B, IDX, max_len, max_tok_num]
 
 
-    def forward(self, x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
+    def forward(self, x_emb_var, x_len, col_inp_var, col_len, col_name_len, x_type_emb_var,
                 gt_where, gt_cond, sel_cond_score=None):
         max_x_len = max(x_len)
         max_col_len = max(col_len)
@@ -85,7 +85,7 @@ class CondOpStrPredictor(nn.Module):
             if sel_cond_score is None:
                 raise Exception("""In the test mode, cond_num_score and cond_col_score
                                 should be passed in order to predict condition op and str!""")
-            cond_num_score, _, cond_col_score = sel_cond_score
+            _, cond_num_score, _, cond_col_score = sel_cond_score
             cond_nums = np.argmax(cond_num_score.data.cpu().numpy(), axis=1)
             col_scores = cond_col_score.data.cpu().numpy()
             chosen_col_gt = [list(np.argsort(-col_scores[b])[:cond_nums[b]]) for b in range(len(cond_nums))]
@@ -94,7 +94,8 @@ class CondOpStrPredictor(nn.Module):
 
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
         h_enc, _ = run_lstm(self.cond_opstr_lstm, x_emb_concat, x_len)
-        e_col, _ = run_lstm(self.cond_name_enc, col_inp_var, col_len)
+        e_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.cond_name_enc) 
+	#e_col, _ = run_lstm(self.cond_name_enc, col_inp_var, col_len)
 
         col_emb = []
         for b in range(B):
@@ -130,7 +131,7 @@ class CondOpStrPredictor(nn.Module):
 
         if gt_where is not None:
             gt_tok_seq, gt_tok_len = self.gen_gt_batch(gt_where)
-            g_str_s_flat, _ = self.cond_str_decoder(
+	    g_str_s_flat, _ = self.cond_str_decoder(
                     gt_tok_seq.view(B*4, -1, self.max_tok_num))
             g_str_s = g_str_s_flat.contiguous().view(B, 4, -1, self.N_h)
 
@@ -141,9 +142,9 @@ class CondOpStrPredictor(nn.Module):
             cond_str_score = self.cond_str_out(
                     self.cond_str_out_h(h_ext) + self.cond_str_out_g(g_ext) +
                     self.cond_str_out_col(col_ext) + self.cond_str_out_ht(ht_ext)).squeeze()
-            for b, num in enumerate(x_len):
+	    for b, num in enumerate(x_len):
                 if num < max_x_len:
-                    cond_str_score[b, :, :, num:] = -100
+		    cond_str_score[b, :, num:] = -100
         else:
             h_ext = h_enc.unsqueeze(1).unsqueeze(1)
             ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)

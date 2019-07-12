@@ -265,14 +265,14 @@ def epoch_acc(model, batch_size, sql_data, table_data, db_path, db_content):
         #raw_col_seq = [x[1] for x in raw_data]
         query_gt, table_ids = to_batch_query(sql_data, perm, st, ed)
         #gt_sel_seq = [x[1] for x in ans_seq]
-	try:
-            score = model.forward(q_seq, col_seq, col_num, q_type, col_type)
-            pred_queries = model.gen_query(score, q_seq, col_seq, raw_q_seq)
-            one_err, tot_err = model.check_acc(raw_data, pred_queries, query_gt)
-        except:
-            badcase += 1
-            print 'badcase', badcase
-            continue
+	#try:
+        score = model.forward(q_seq, col_seq, col_num, q_type, col_type)
+        pred_queries = model.gen_query(score, q_seq, col_seq, raw_q_seq)
+        one_err, tot_err = model.check_acc(raw_data, pred_queries, query_gt)
+        #except:
+        #    badcase += 1
+        #    print 'badcase', badcase
+        #    continue
         one_acc_num += (ed-st-one_err)
         tot_acc_num += (ed-st-tot_err)
 
