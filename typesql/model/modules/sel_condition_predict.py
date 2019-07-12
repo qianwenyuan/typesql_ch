@@ -47,13 +47,14 @@ class SelCondPredictor(nn.Module):
         self.softmax = nn.Softmax() #dim=1
 
 
-    def forward(self, x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel):
+    def forward(self, x_emb_var, x_len, col_inp_var, col_name_len, col_len, x_type_emb_var, gt_sel):
         max_x_len = max(x_len)
         max_col_len = max(col_len)
         B = len(x_len)
 
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
-        e_col, _ = run_lstm(self.selcond_name_enc, col_inp_var, col_len)
+        e_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.selcond_name_enc)
+        # e_col, _ = run_lstm(self.selcond_name_enc, col_inp_var, col_len)
         h_enc, _ = run_lstm(self.selcond_lstm, x_emb_concat, x_len)
 
         # Predict the number of selected columns

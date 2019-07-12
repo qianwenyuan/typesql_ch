@@ -318,7 +318,7 @@ class SQLNet(nn.Module):
             x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
             #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
 
-            sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel)
+            sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, x_type_emb_var, gt_sel)
             agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var, gt_sel, sel_cond_score)
             cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, x_type_emb_var,
                                                  gt_where, gt_cond, sel_cond_score)
