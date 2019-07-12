@@ -4,7 +4,6 @@ import json
 import numpy as np
 from lib.dbengine import DBEngine
 from tqdm import tqdm
-from pyhanlp import *
 
 def load_data(sql_paths, table_paths, use_small=False):
     if not isinstance(sql_paths, list):
@@ -33,7 +32,8 @@ def load_data(sql_paths, table_paths, use_small=False):
                 table_data[tab[u'id']] = tab
 
     for sql in sql_data:
-        assert sql[u'table_id'] in table_data
+        if sql[u'table_id'] not in table_data:
+	   print sql[u'table_id']
 
     return sql_data, table_data
 
@@ -56,14 +56,14 @@ def load_data(sql_paths, table_paths, use_small=False):
 
 def load_dataset(toy=False, use_small=False, mode='train'):
     print "Loading dataset"
-    dev_sql, dev_table = load_data('data_zhuiyi/val/val_tok.json', 'data_zhuiyi/val/val.tables.json', use_small=use_small)
+    dev_sql, dev_table = load_data('data_zhuiyi/val/val_tok.json', 'data_zhuiyi/val/val.tables.toks.json', use_small=use_small)
     dev_db = 'data_zhuiyi/val/val.db'
     if mode == 'train':
-        train_sql, train_table = load_data('data_zhuiyi/train/train_tok.json', 'data_zhuiyi/train/train.tables.json', use_small=use_small)
+        train_sql, train_table = load_data('data_zhuiyi/train/train_tok.json', 'data_zhuiyi/train/train.tables.toks.json', use_small=use_small)
         train_db = 'data_zhuiyi/train/train.db'
         return train_sql, train_table, train_db, dev_sql, dev_table, dev_db
     elif mode == 'test':
-        test_sql, test_table = load_data('data_zhuiyi/test/test_tok.json', 'data_zhuiyi/test/test.tables.json', use_small=use_small)
+        test_sql, test_table = load_data('data_zhuiyi/test/test_tok.json', 'data_zhuiyi/test/test.tables.toks.json', use_small=use_small)
         test_db = 'data_zhuiyi/test/test.db'
         return dev_sql, dev_table, dev_db, test_sql, test_table, test_db
 
@@ -119,31 +119,9 @@ def to_batch_seq(sql_data, table_data, idxes, st, ed, db_content=0, ret_vis_data
             q_type.append([[x] for x in sql["question_type_org_kgcol"]])
         else:
             q_seq.append(sql['question_tok_concol'])
-            q_type.append(sql["question_type_concol_list"])
+	    q_type.append(sql["question_type_concol_list"])
         #col_type.append(table_data[sql['table_id']]['header_type_kg'])
-
-        # Parse for the header toks
-        header_toks = []
-        for column in table_data[sql['table_id']]['header']:
-            if column.find("(") > -1 and column.find(")") > -1 or column.find(u'（') > -1 and column.find(u'）') > -1:
-                if len(column) > column.find(')'):
-                    column = column[0: column.find(u'('):] + column[column.find(u')') + 1::]
-                elif len(column) > column.find(u'）'):
-                    column = column[0: column.find(u'（'):] + column[column.find(u'）') + 1::]
-            column.replace(u'一', '1')
-            column.replace(u'二', '2')
-            column.replace(u'三', '3')
-            column.replace(u'四', '4')
-            column.replace(u'五', '5')
-            column.replace(u'六', '6')
-            column.replace(u'七', '7')
-            column.replace(u'八', '8')
-            column.replace(u'九', '9')
-            column.replace(u'零', '0')
-            column.replace(u'一', '1')
-            header_toks.append([term.word for term in HanLP.segment(column)])
-
-        col_seq.append(header_toks)
+	col_seq.append(table_data[sql['table_id']]['header_tok'])
         col_num.append(len(table_data[sql['table_id']]['header']))
         ans_seq.append(
             (
@@ -210,7 +188,7 @@ def epoch_train(model, optimizer, batch_size, sql_data, table_data, db_content):
 
         q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type = \
                 to_batch_seq(sql_data, table_data, perm, st, ed, db_content)
-        gt_where_seq = model.generate_gt_where_seq_test(q_seq, gt_cond_seq)
+        gt_where_seq =  model.generate_gt_where_seq_test(q_seq, gt_cond_seq)
         gt_sel_seq = [x[1] for x in ans_seq]
         # gt_agg_seq = [x[2] for x in ans_seq]
         score = model.forward(q_seq, col_seq, col_num, q_type, col_type,
@@ -350,7 +328,7 @@ def load_word_emb(file_name, load_used=False, use_small=False):
                     break
                 info = line.strip().split(' ')
                 if info[0].lower() not in ret:
-                    ret[info[0]] = np.array(map(lambda x:float(x), info[1:]))
+                    ret[info[0].decode('utf-8')] = np.array(map(lambda x:float(x), info[1:]))
         return ret
     else:
         print ('Load used word embedding')

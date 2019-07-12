@@ -10,6 +10,8 @@ if __name__ == '__main__':
     parser.add_argument('--ca', action='store_true', help='Whether use column attention.')
     parser.add_argument('--train_emb', action='store_true', help='Use trained word embedding for SQLNet.')
     parser.add_argument('--output_dir', type=str, default='', help='Output path of prediction result')
+    parser.add_argument('--db_content', type=int, default=0,
+            help='0: use knowledge graph type, 1: use db content to get type info')
     args = parser.parse_args()
 
     n_word=300
@@ -24,8 +26,9 @@ if __name__ == '__main__':
 
     dev_sql, dev_table, dev_db, test_sql, test_table, test_db = load_dataset(use_small=use_small, mode='test')
 
-    word_emb = load_word_emb('data_zhuiyi/sgns.baidubaike.bigram-char')
-    model = SQLNet(word_emb, N_word=n_word, use_ca=args.ca, gpu=gpu, trainable_emb=args.train_emb)
+    #word_emb = load_word_emb('data_zhuiyi/sgns.baidubaike.bigram-char')
+    word_emb = load_concat_wemb('data_zhuiyi/sgns.baidubaike.bigram-char', 'data_zhuiyi/hanlp-wiki-vec-zh')
+    model = SQLNet(word_emb, N_word=n_word, use_ca=args.ca, gpu=gpu, trainable_emb=args.train_embi, db_content=args.db_content)
 
     model_path = 'saved_model/best_model'
     print "Loading from %s" % model_path

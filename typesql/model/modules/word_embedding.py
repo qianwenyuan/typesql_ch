@@ -57,21 +57,24 @@ class WordEmbedding(nn.Module):
 
 
     def gen_x_batch(self, q, col, is_list=False, is_q=False):
-        B = len(q)
+	B = len(q)
         val_embs = []
         val_len = np.zeros(B, dtype=np.int64)
         for i, (one_q, one_col) in enumerate(zip(q, col)):
-            if is_q:
+	    if is_q:
                 one_qn = []
+		#print(len(one_q))
                 for ql in one_q:
                     one_qnl = []
                     for q in ql:
-                        if "/" in q:
+                        #print("q:{}".format(q.encode('utf-8')))
+			if "/" in q:
                             one_qnl.extend(q.split("/"))
                         else:
                             one_qnl.append(q)
                     one_qn.append(one_qnl)
                 one_q = one_qn
+		#print(len(one_q))
             if self.trainable:
                 # q_val is only the indexes of words
                 q_val = map(lambda x:self.w2i.get(x, 0), one_q)
@@ -131,7 +134,7 @@ class WordEmbedding(nn.Module):
         names = []
         for b, one_cols in enumerate(cols):
             names = names + one_cols
-            col_len[b] = len(one_cols)
+	    col_len[b] = len(one_cols)
         #TODO: what is the diff bw name_len and col_len?
         name_inp_var, name_len = self.str_list_to_batch(names)
         return name_inp_var, name_len, col_len
@@ -166,14 +169,23 @@ class WordEmbedding(nn.Module):
 
         val_embs = []
         val_len = np.zeros(B, dtype=np.int64)
+	is_flag = False
         for i, one_str in enumerate(str_list):
-            if self.trainable:
+	    if is_flag:
+		for tok in one_str:
+                    print("tok:{}".format(tok.encode('utf-8')))
+	    if self.trainable:
                 val = [self.w2i.get(x, 0) for x in one_str]
             else:
                 val = [self.word_emb.get(x, np.zeros(
                     self.N_word, dtype=np.float32)) for x in one_str]
             val_embs.append(val)
-            val_len[i] = len(val)
+            if len(val) == 0:
+		print("!!!!!!!")
+		is_flag=True
+		for tok in one_str:
+		    print("tok:{}".format(tok.encode('utf-8')))
+	    val_len[i] = len(val)
         max_len = max(val_len)
 
         if self.trainable:

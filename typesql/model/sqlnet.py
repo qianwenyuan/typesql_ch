@@ -122,12 +122,31 @@ class SQLNet(nn.Module):
     def generate_gt_where_seq_test(self, q, gt_cond_seq):
         ret_seq = []
         for cur_q, ans in zip(q, gt_cond_seq):
-            temp_q = u"".join(cur_q)
-            cur_q = [u'<BEG>'] + cur_q + [u'<END>']
-            record = []
+	    q_toks = []
+	    q_toks_cnt = []
+	    cur_q_join = []
+            cnt=0
+	    for toks in cur_q:
+		cur_q_join.append(u"".join(toks))
+		cnt1 = 0
+		for tok in toks:
+		    q_toks.append(tok)
+		    cnt1 = cnt1 + len(tok)
+		cnt = cnt + cnt1
+		q_toks_cnt.append(cnt)
+	    #for tok in q_toks:
+	    #   print("{}".format(tok.encode('utf-8')))
+	    #print("q_toks:{}".format(len(q_toks)))
+	    temp_q = u"".join(cur_q_join)
+	    #print("temp_q:{}".format(temp_q.encode('utf-8')))
+            #cur_q = [u'<BEG>'] + cur_q + [u'<END>']
+            #cur_q = [u'<BEG>'] + cur_q_join + [u'<END>']
+            #print("cur_q:{}".format(cur_q.encode('utf-8')))
+	    record = []
             record_cond = []
             for cond in ans:
-                if cond[2] not in temp_q:
+                #print("cond[2]:{}".format(cond[2].encode('utf-8')))
+		if cond[2] not in temp_q:
                     record.append((False, cond[2]))
                 else:
                     record.append((True, cond[2]))
@@ -135,11 +154,28 @@ class SQLNet(nn.Module):
                 temp_ret_seq = []
                 if item[0]:
                     temp_ret_seq.append(0)
-                    temp_ret_seq.extend(list(range(temp_q.index(item[1])+1,temp_q.index(item[1])+len(item[1])+1)))
-                    temp_ret_seq.append(len(cur_q)-1)
+		    start_idx = -1
+		    end_idx = -1
+                    start_idx_org = temp_q.index(item[1])+1
+		    end_idx_org = start_idx_org+len(item[1])-1
+		    for idx, cnt in enumerate(q_toks_cnt):
+			if start_idx_org <= cnt:
+				start_idx=idx
+				break
+		    for idx, cnt in enumerate(q_toks_cnt):
+			if end_idx_org <= cnt:
+				end_idx = idx + 1
+				break
+		    if end_idx == -1:
+			end_idx = len(q_toks_cnt)+1
+		    #temp_ret_seq.extend(list(range(temp_q.index(item[1])+1,temp_q.index(item[1])+len(item[1])+1)))
+		    #print("start_idx:{} end_idx:{}".format(start_idx, end_idx))
+		    temp_ret_seq.extend(list(range(start_idx+1, end_idx+1))) 
+		    temp_ret_seq.append(len(q_toks_cnt)+1)
                 else:
-                    temp_ret_seq.append([0,len(cur_q)-1])
-                record_cond.append(temp_ret_seq)
+                    temp_ret_seq.extend([0,len(q_toks_cnt)+1])
+                #print("temp_ret_sql:{}".format(temp_ret_seq))
+		record_cond.append(temp_ret_seq)
             ret_seq.append(record_cond)
         return ret_seq
 
@@ -279,7 +315,21 @@ class SQLNet(nn.Module):
         else:
             x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
 	    col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
-            x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
+            """for i, len1 in enumerate(col_name_len):
+		if len1==0:
+		    name = []
+	   	    for b in col:
+		        for col_toks in b:
+			    name = name + col_toks
+	   	    for ii, tok in enumerate(name):
+			if ii == i:
+			    for tok1 in tok:
+			        print("{}".format(tok1.encode('utf-8')))   
+		    print("0 idx = {}".format(i))"""
+	    #if col_name_len.any()==0:
+	    #	print("col_inp_var:{}".format(col_inp_var.encode('utf-8')))
+	    #print("col_inp_var:{} col_name_len:{} col_len:{}".format(col_inp_var.shape, col_name_len.shape, col_len.shape))
+	    x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
             #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
             sel_num_score = self.sel_num(x_emb_var, x_len, col_inp_var, col_name_len, col_len, col_num, x_type_emb_var)
 
@@ -440,18 +490,23 @@ class SQLNet(nn.Module):
 
         # Evaluate the strings of conditions
         for b in range(len(gt_where)):
-            for idx in range(len(gt_where[b])):
+            #print(gt_where[b])
+	    for idx in range(len(gt_where[b])):
                 cond_str_truth = gt_where[b][idx]
-                if len(cond_str_truth) == 1:
-                    continue
-                data = torch.from_numpy(np.array(cond_str_truth[1:]))
-                if self.gpu:
+		#print("{}{}".format(cond_str_truth, len(cond_str_truth)))
+                if len(cond_str_truth) == 2:
+		    continue
+                #print(cond_str_truth[1:])
+		data = torch.from_numpy(np.array(cond_str_truth[1:]))
+                #print("data:{}{}".format(data, data.shape))
+		if self.gpu:
                     cond_str_truth_var = Variable(data.cuda())
                 else:
                     cond_str_truth_var = Variable(data)
                 str_end = len(cond_str_truth) - 1
                 cond_str_pred = cond_str_score[b, idx, :str_end]
-                loss += (self.CE(cond_str_pred, cond_str_truth_var) \
+                #print ("cond_str_score:{}cond_str_pred:{}cond_str_truth_var:{}".format(cond_str_score.shape, cond_str_pred.shape, cond_str_truth_var))
+		loss += (self.CE(cond_str_pred, cond_str_truth_var) \
                          / (len(gt_where) * len(gt_where[b])))
 
         # Evaluate condition relationship, and / or
@@ -809,3 +864,4 @@ class SQLNet(nn.Module):
                 cur_query['conds'].append(cur_cond)
             ret_queries.append(cur_query)
         return ret_queries
+

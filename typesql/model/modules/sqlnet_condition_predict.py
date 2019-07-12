@@ -83,10 +83,9 @@ class SQLNetCondPredictor(nn.Module):
 
     def gen_gt_batch(self, split_tok_seq):
         B = len(split_tok_seq)
-        max_len = max([max([len(tok) for tok in tok_seq]+[0]) for
-            tok_seq in split_tok_seq]) - 1 # The max seq len in the batch.
-        if max_len < 1:
-            max_len = 1
+	max_len = max([max([len(tok) for tok in tok_seq]) for tok_seq in split_tok_seq]) - 1 # The max seq len in the batch.
+	if max_len < 2:
+            max_len = 2
         ret_array = np.zeros((
             B, 4, max_len, self.max_tok_num), dtype=np.float32)
         ret_len = np.zeros((B, 4))
@@ -212,9 +211,10 @@ class SQLNetCondPredictor(nn.Module):
                 self.cond_op_out_col(col_emb)).squeeze()
         #Predict the string of conditions
 	xt_str_enc = self.cond_str_x_type(x_type_emb_var)
-
+	#print("xt_str_enc:{} x_type_emb_var:{}".format(xt_str_enc.shape, x_type_emb_var.shape))
         h_str_enc, _ = run_lstm(self.cond_str_lstm, x_emb_concat, x_len)
-        e_cond_col, _ = col_name_encode(col_inp_var, col_name_len,
+        #print("h_str_enc:{} x_emb_concat:{}".format(h_str_enc.shape, x_emb_concat.shape))
+	e_cond_col, _ = col_name_encode(col_inp_var, col_name_len,
                 col_len, self.cond_str_name_enc)
         col_emb = []
         for b in range(B):
@@ -224,22 +224,26 @@ class SQLNetCondPredictor(nn.Module):
         col_emb = torch.stack(col_emb)
 
         if gt_where is not None:
-            gt_tok_seq, gt_tok_len = self.gen_gt_batch(gt_where)
-            g_str_s_flat, _ = self.cond_str_decoder(
+	    gt_tok_seq, gt_tok_len = self.gen_gt_batch(gt_where)
+            #print("gt_tok_seq:{}".format(gt_tok_seq.shape))
+	    g_str_s_flat, _ = self.cond_str_decoder(
                     gt_tok_seq.view(B*4, -1, self.max_tok_num))
             g_str_s = g_str_s_flat.contiguous().view(B, 4, -1, self.N_h)
-
+	    #print("g_str_s:{}".format(g_str_s.shape))
             h_ext = h_str_enc.unsqueeze(1).unsqueeze(1)
             ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)
 	    g_ext = g_str_s.unsqueeze(3)
-            col_ext = col_emb.unsqueeze(2).unsqueeze(2)
-
+            #print("g_ext:{}".format(g_ext.shape))
+	    col_ext = col_emb.unsqueeze(2).unsqueeze(2)
+	
             cond_str_score = self.cond_str_out(
                     self.cond_str_out_h(h_ext) + self.cond_str_out_g(g_ext) +
                     self.cond_str_out_col(col_ext)+ self.cond_str_out_ht(ht_ext)).squeeze()
+	    #print("cond_str_score:{}".format(cond_str_score.shape))
 	    for b, num in enumerate(x_len):
                 if num < max_x_len:
-                    cond_str_score[b, :, num:] = -100
+                   #print("num:{}".format(num)) 
+		   cond_str_score[b, :, :, num:] = -100
         else:
             h_ext = h_str_enc.unsqueeze(1).unsqueeze(1)
 	    ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)
@@ -285,7 +289,7 @@ class SQLNetCondPredictor(nn.Module):
             cond_str_score = torch.stack(scores, 2)
             for b, num in enumerate(x_len):
                 if num < max_x_len:
-                    cond_str_score[b, :, num:] = -100  #[B, IDX, T, TOK_NUM]
+                    cond_str_score[b, :, :, num:] = -100  #[B, IDX, T, TOK_NUM]
         cond_score = (cond_num_score,
                 cond_col_score, cond_op_score, cond_str_score)
 
