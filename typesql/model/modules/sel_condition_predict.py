@@ -116,7 +116,10 @@ class SelCondPredictor(nn.Module):
 
         #Predict the columns of conditions
         if gt_sel is None:
-            gt_sel = np.argmax(sel_score.data.cpu().numpy(), axis=1)
+            num = np.argmax(sel_num_score.data.cpu().numpy(), axis=1) + 1
+            sel = sel_score.data.cpu().numpy()
+            gt_sel = [list(np.argsort(-sel[b])[:num[b]]) for b in range(len(num))]
+            #gt_sel = np.argmax(sel_score.data.cpu().numpy(), axis=1)
         #gt_sel (B)
         chosen_sel_idx = torch.LongTensor(gt_sel)
         #aux_range (B) (0,1,...)
