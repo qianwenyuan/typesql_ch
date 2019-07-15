@@ -236,13 +236,15 @@ def epoch_exec_acc(model, batch_size, sql_data, table_data, db_path, db_content)
 
     return tot_acc_num / len(sql_data)
 
-def predict_test(model, batch_size, sql_data, table_data, output_path):
+def predict_test(model, batch_size, sql_data, table_data, output_path, db_content):
     model.eval()
     perm = list(range(len(sql_data)))
     fw = open(output_path,'w')
     for st in tqdm(range(len(sql_data)//batch_size+1)):
         ed = (st+1)*batch_size if (st+1)*batch_size < len(perm) else len(perm)
         st = st * batch_size
+	#q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
+		#raw_data = to_batch_seq_test(sql_data, table_data, perm, st, ed)
         q_seq, col_seq, col_num, raw_q_seq, table_ids = to_batch_seq_test(sql_data, table_data, perm, st, ed)
         score = model.forward(q_seq, col_seq, col_num)
         sql_preds = model.gen_query(score, q_seq, col_seq, raw_q_seq)

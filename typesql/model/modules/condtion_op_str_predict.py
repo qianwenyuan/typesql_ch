@@ -58,6 +58,12 @@ class CondOpStrPredictor(nn.Module):
             idx = 0
             for idx, one_tok_seq in enumerate(tok_seq):
                 out_one_tok_seq = one_tok_seq[:-1]
+                #out_one_tok_seq = one_tok_seq[1:]
+		'''
+		print("now toks:")
+		for tok in out_one_tok_seq:
+		    print("tok:{}".format(tok))
+		'''
                 ret_len[b, idx] = len(out_one_tok_seq)
                 for t, tok_id in enumerate(out_one_tok_seq):
                     ret_array[b, idx, t, tok_id] = 1

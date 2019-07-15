@@ -449,6 +449,9 @@ class SQLNet(nn.Module):
                 if len(cond_str_truth) == 2:
 		    continue
                 #print(cond_str_truth[1:])
+		#for tok in cond_str_truth[1:]:
+                    #print("cond_str_tr_tok:{}".format(tok))
+                #print(' ')
 		data = torch.from_numpy(np.array(cond_str_truth[1:]))
                 #print("data:{}{}".format(data, data.shape))
 		if self.gpu:
