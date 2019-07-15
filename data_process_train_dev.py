@@ -99,8 +99,8 @@ class Keys(object):
     
     # randomly chosen NONE string
     NONE = "te8r2ed" 
-    COLUMN = "column"
-    ENTITY = "entity"
+    COLUMN = "列"
+    ENTITY = "实体"
 
 
 # In[3]:
