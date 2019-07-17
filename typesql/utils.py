@@ -153,14 +153,21 @@ def to_batch_seq_test(sql_data, table_data, idxes, st, ed):
     col_num = []
     raw_seq = []
     table_ids = []
+    q_type = []
+    col_type = []
+    raw_col = []
     for i in range(st, ed):
         sql = sql_data[idxes[i]]
-        q_seq.append([char for char in sql['question']])
-        col_seq.append([[char for char in header] for header in table_data[sql['table_id']]['header']])
+        q_seq.append(sql['question_tok_concol'])
+        col_seq.append(table_data[sql['table_id']]['header'])
         col_num.append(len(table_data[sql['table_id']]['header']))
         raw_seq.append(sql['question'])
+	for concol in sql['question_tok_concol']:
+	    raw_col.append([[x] for x in concol])
         table_ids.append(sql_data[idxes[i]]['table_id'])
-    return q_seq, col_seq, col_num, raw_seq, table_ids
+	q_type.append(sql['question_type_concol_list'])
+	
+    return q_seq, col_seq, col_num, raw_seq, table_ids, q_type, col_type, raw_col
 
 def to_batch_query(sql_data, idxes, st, ed):
     # query_gt = []
@@ -245,11 +252,20 @@ def predict_test(model, batch_size, sql_data, table_data, output_path, db_conten
         st = st * batch_size
 	#q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
 		#raw_data = to_batch_seq_test(sql_data, table_data, perm, st, ed)
-        q_seq, col_seq, col_num, raw_q_seq, table_ids = to_batch_seq_test(sql_data, table_data, perm, st, ed)
-        score = model.forward(q_seq, col_seq, col_num)
-        sql_preds = model.gen_query(score, q_seq, col_seq, raw_q_seq)
+        q_seq, col_seq, col_num, raw_q_seq, table_ids, q_type, col_type, raw_col = to_batch_seq_test(sql_data, table_data, perm, st, ed)
+	#print "q_seq:{}, q_type:{}, col_seq:{}, col_type:{}".format(q_seq.shape(),q_type.shape(),col_seq.shape(),col_type.shape()), 
+	'''
+	arr1 = np.array(q_seq)
+	arr2 = np.array(q_type)
+	print("q_seq_size:{}, q_type_size:{}".format(arr1.size(), arr2.size()))
+	'''
+	print("q_seq:{}".format(len(q_seq)))
+        score = model.forward(q_seq, col_seq, col_num, q_type, col_type)
+	
+        sql_preds = model.gen_query(score, q_seq, col_seq, raw_q_seq, raw_col)
         for sql_pred in sql_preds:
             fw.writelines(json.dumps(sql_pred,ensure_ascii=False).encode('utf-8')+'\n')
+
     fw.close()
 
 def epoch_acc(model, batch_size, sql_data, table_data, db_path, db_content):
@@ -263,6 +279,7 @@ def epoch_acc(model, batch_size, sql_data, table_data, db_path, db_content):
         st = st * batch_size
         q_seq, gt_sel_num, col_seq, col_num, ans_seq, gt_cond_seq, q_type, col_type,\
          raw_data = to_batch_seq(sql_data, table_data, perm, st, ed, db_content, ret_vis_data=True)
+	print("q_seq:{}".format(len(q_seq)))
         raw_q_seq = [x[0] for x in raw_data]
         #raw_col_seq = [x[1] for x in raw_data]
         query_gt, table_ids = to_batch_query(sql_data, perm, st, ed)

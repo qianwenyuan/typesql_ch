@@ -51,7 +51,7 @@ class SelCondPredictor(nn.Module):
         max_x_len = max(x_len)
         max_col_len = max(col_len)
         B = len(x_len)
-
+	print("x_size:{},x_type_size:{}".format(x_emb_var.size(), x_type_emb_var.size()))
         x_emb_concat = torch.cat((x_emb_var, x_type_emb_var), 2)
         e_col, _ = col_name_encode(col_inp_var, col_name_len, col_len, self.selcond_name_enc)
         # e_col, _ = run_lstm(self.selcond_name_enc, col_inp_var, col_len)
@@ -85,6 +85,7 @@ class SelCondPredictor(nn.Module):
             if num < max_x_len:
                 sel_att_val[idx, :, num:] = -100
         sel_att = self.softmax(sel_att_val.view((-1, max_x_len))).view(B, -1, max_x_len)
+	#print(sel_att.size())
         #K_sel_expand -> (B, max_number of col names in batch tables, hid_dim)
         K_sel_expand = (h_enc.unsqueeze(1) * sel_att.unsqueeze(3)).sum(2)
         sel_score = self.sel_out(self.sel_out_K(K_sel_expand) + \

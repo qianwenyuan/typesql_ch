@@ -316,8 +316,9 @@ class SQLNet(nn.Module):
             x_emb_var, x_len = self.embed_layer.gen_x_batch(q, col, is_list=True, is_q=True)
             col_inp_var, col_name_len, col_len = self.embed_layer.gen_col_batch(col)
             x_type_emb_var, x_type_len = self.embed_layer.gen_x_batch(q_type, col, is_list=True, is_q=True)
+	    #x_type_cond_emb_var, _ = self.cond_type_embed_layer.gen_xc_type_batch(q_type, is_list=True)
             #col_type_inp_var, col_type_len = self.embed_layer.gen_x_batch(col_type, col_type, is_list=True)
-
+	    #print("x_var_shape:{}, x_type_var_shape:{}".format(x_emb_var, x_type_emb_var))
             sel_cond_score = self.selcond_pred(x_emb_var, x_len, col_inp_var, col_name_len, col_len, x_type_emb_var, gt_sel)
             agg_score = self.agg_pred(x_emb_var, x_len, col_inp_var, col_len, col_name_len, x_type_emb_var, gt_sel, sel_cond_score)
             cond_op_str_score = self.op_str_pred(x_emb_var, x_len, col_inp_var, col_len, col_name_len, x_type_emb_var, gt_where, gt_cond, sel_cond_score)
@@ -448,7 +449,7 @@ class SQLNet(nn.Module):
 		#print("{}{}".format(cond_str_truth, len(cond_str_truth)))
                 if len(cond_str_truth) == 2:
 		    continue
-                #print(cond_str_truth[1:])
+                #print("cond_str_truth:{}".format(cond_str_truth[1:]))
 		#for tok in cond_str_truth[1:]:
                     #print("cond_str_tr_tok:{}".format(tok))
                 #print(' ')
@@ -459,8 +460,10 @@ class SQLNet(nn.Module):
                 else:
                     cond_str_truth_var = Variable(data)
                 str_end = len(cond_str_truth) - 1
-                cond_str_pred = cond_str_score[b, idx, :str_end]
-                #print ("cond_str_score:{}cond_str_pred:{}cond_str_truth_var:{}".format(cond_str_score.shape, cond_str_pred.shape, cond_str_truth_var))
+                #print("cond_str_score:{} str_end:{}".format(cond_str_score.shape, str_end)) 
+		cond_str_pred = cond_str_score[b, idx, :str_end]
+                #print ("cond_str_score:{}cond_str_pred:{}".format(cond_str_score.shape, cond_str_pred.shape))
+		#print("cond_str_pred:{}".format(cond_str_pred))
 		loss += (self.CE(cond_str_pred, cond_str_truth_var) \
                          / (len(gt_where) * len(gt_where[b])))
 

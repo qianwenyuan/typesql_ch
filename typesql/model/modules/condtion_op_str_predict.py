@@ -50,15 +50,15 @@ class CondOpStrPredictor(nn.Module):
         B = len(split_tok_seq)
         max_len = max([max([len(tok) for tok in tok_seq]+[0]) for
             tok_seq in split_tok_seq]) - 1 # The max seq len in the batch.
-        if max_len < 1:
-            max_len = 1
+        if max_len <= 1:
+            max_len = 2
         ret_array = np.zeros((B, 4, max_len, self.max_tok_num), dtype=np.float32)
         ret_len = np.zeros((B, 4))
         for b, tok_seq in enumerate(split_tok_seq):
             idx = 0
             for idx, one_tok_seq in enumerate(tok_seq):
                 out_one_tok_seq = one_tok_seq[:-1]
-                #out_one_tok_seq = one_tok_seq[1:]
+                #print("out_one_tok_seq[:-1]:{}".format(one_tok_seq[:-1]))
 		'''
 		print("now toks:")
 		for tok in out_one_tok_seq:
@@ -66,12 +66,11 @@ class CondOpStrPredictor(nn.Module):
 		'''
                 ret_len[b, idx] = len(out_one_tok_seq)
                 for t, tok_id in enumerate(out_one_tok_seq):
-                    ret_array[b, idx, t, tok_id] = 1
+		    ret_array[b, idx, t, tok_id] = 1
             if idx < 3:
                 ret_array[b, idx+1:, 0, 1] = 1
                 ret_len[b, idx+1:] = 1
-
-        ret_inp = torch.from_numpy(ret_array)
+	ret_inp = torch.from_numpy(ret_array)
         if self.gpu:
             ret_inp = ret_inp.cuda()
         ret_inp_var = Variable(ret_inp)
@@ -150,7 +149,7 @@ class CondOpStrPredictor(nn.Module):
                     self.cond_str_out_col(col_ext) + self.cond_str_out_ht(ht_ext)).squeeze()
 	    for b, num in enumerate(x_len):
                 if num < max_x_len:
-		    cond_str_score[b, :, num:] = -100
+		    cond_str_score[b, :, :, num:] = -100
         else:
             h_ext = h_enc.unsqueeze(1).unsqueeze(1)
             ht_ext = xt_str_enc.unsqueeze(1).unsqueeze(1)

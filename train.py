@@ -9,7 +9,7 @@ from typesql.model.sqlnet import SQLNet
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--bs', type=int, default=16, help='Batch size')
-    parser.add_argument('--epoch', type=int, default=100, help='Epoch number')
+    parser.add_argument('--epoch', type=int, default=150, help='Epoch number')
     parser.add_argument('--gpu', action='store_true', help='Whether use gpu to train')
     parser.add_argument('--toy', action='store_true', help='If set, use small data for fast debugging')
     parser.add_argument('--ca', action='store_true', help='Whether use column attention')
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     train_sql, train_table, train_db, dev_sql, dev_table, dev_db = load_dataset(use_small=use_small)
 
     #word_emb = load_word_emb('data_zhuiyi/sgns.baidubaike.bigram-char')
-    word_emb = load_concat_wemb('data_zhuiyi/sgns.baidubaike.bigram-char', 'data_zhuiyi/hanlp-wiki-vec-zh')
+    word_emb = load_concat_wemb('data_zhuiyi/sgns.baidubaike.bigram-char', 'data_zhuiyi/sgns.baidubaike.bigram-char')
     #word_emb = load_concat_wemb('data_zhuiyi/char_embedding', 'data_zhuiyi/char_embedding')
     model = SQLNet(word_emb, N_word=n_word, use_ca=args.ca, gpu=gpu, trainable_emb=args.train_emb, db_content=args.db_content)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0)

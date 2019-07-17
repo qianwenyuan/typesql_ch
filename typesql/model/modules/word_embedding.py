@@ -117,6 +117,7 @@ class WordEmbedding(nn.Module):
             val_inp_var = self.embedding(val_tok_var)
         else:
             val_emb_array = np.zeros((B, max_len, self.N_word), dtype=np.float32)
+	    #print(B)
             for i in range(B):
                 for t in range(len(val_embs[i])):
                     val_emb_array[i,t,:] = val_embs[i][t]
